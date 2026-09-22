@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# Configuración de la página (panel lateral abierto por defecto)
+# Configuración de la página (Ancho completo)
 st.set_page_config(
     page_title="Sistema de Inventario e Inspecciones", 
     page_icon="📦", 
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # Inicialización segura de la base de datos en sesión
@@ -20,26 +19,18 @@ if "inspecciones" not in st.session_state or not isinstance(st.session_state.ins
 # Título Principal
 st.title("📦 Sistema de Inventario e Inspecciones")
 
-# --- MENÚ LATERAL FIJO (LISTA DE OPCIONES) ---
-st.sidebar.title("📌 Menú de Navegación")
-st.sidebar.markdown("---")
-
-menu = st.sidebar.radio(
-    "Selecciona una sección:", 
-    [
-        "Dashboard", 
-        "Registrar Equipo", 
-        "Inspección Pre-operacional", 
-        "Eliminar / Gestionar Equipo", 
-        "Historial", 
-        "Asistente IA"
-    ]
-)
-
-st.sidebar.markdown("---")
+# --- NAVEGACIÓN SUPERIOR TIPO TABLA / PESTAÑAS (HIPERVÍNCULOS) ---
+tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_ia = st.tabs([
+    "📊 Dashboard", 
+    "➕ Registrar Equipo", 
+    "📋 Inspección Pre-operacional", 
+    "🗑️ Eliminar / Gestionar", 
+    "📜 Historial", 
+    "🤖 Asistente IA"
+])
 
 # 1. DASHBOARD
-if menu == "Dashboard":
+with tab_dashboard:
     st.header("📊 Estado General de Equipos")
     
     col1, col2, col3 = st.columns(3)
@@ -61,7 +52,7 @@ if menu == "Dashboard":
         st.info("No hay equipos en la base de datos. Ve a 'Registrar Equipo' para agregar el primero.")
 
 # 2. REGISTRAR EQUIPO
-elif menu == "Registrar Equipo":
+with tab_registrar:
     st.header("➕ Registrar Nuevo Equipo / EPP")
     
     with st.form("form_registro", clear_on_submit=True):
@@ -91,7 +82,7 @@ elif menu == "Registrar Equipo":
                 st.warning("Por favor completa los campos de Código y Marca / Modelo.")
 
 # 3. INSPECCIÓN PRE-OPERACIONAL
-elif menu == "Inspección Pre-operacional":
+with tab_inspeccion:
     st.header("📋 Inspección Pre-operacional de EPP")
     
     if len(st.session_state.inventario) == 0:
@@ -128,7 +119,7 @@ elif menu == "Inspección Pre-operacional":
                 st.error(f"Inspección guardada: NO CONFORME ❌. Se requiere retiro de servicio.")
 
 # 4. ELIMINAR / GESTIONAR EQUIPO
-elif menu == "Eliminar / Gestionar Equipo":
+with tab_gestionar:
     st.header("🗑️ Eliminar Equipo del Inventario")
     
     if len(st.session_state.inventario) == 0:
@@ -144,7 +135,7 @@ elif menu == "Eliminar / Gestionar Equipo":
             st.success(f"El equipo {codigo_a_eliminar} ha sido eliminado correctamente del inventario.")
 
 # 5. HISTORIAL
-elif menu == "Historial":
+with tab_historial:
     st.header("📜 Historial de Inspecciones")
     if len(st.session_state.inspecciones) > 0:
         df_insp = pd.DataFrame(st.session_state.inspecciones)
@@ -153,7 +144,7 @@ elif menu == "Historial":
         st.info("Aún no se han realizado inspecciones.")
 
 # 6. ASISTENTE IA
-elif menu == "Asistente IA":
+with tab_ia:
     st.header("🤖 Asistente Técnico de Inspección (IA)")
     
     pregunta = st.text_input("Consulta norma, criterio de rechazo o especificación técnica:")
