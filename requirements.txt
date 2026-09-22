@@ -1,2 +1,4 @@
 pandas
 google-generativeai
+streamlit-gsheets
+openpyxl
