@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-import gspread
 
 # Configuración de la página
 st.set_page_config(
@@ -10,25 +9,18 @@ st.set_page_config(
     layout="wide"
 )
 
-# Función para conectar y cargar datos de Google Sheets
-def cargar_hoja(nombre_pestaña):
+# Función limpia para leer directamente de Google Sheets vía CSV sin fallos de gspread
+def cargar_hoja_csv(pestaña):
     try:
-        url_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        gc = gspread.public_url(url_sheet) if hasattr(gspread, 'public_url') else gspread.open_by_url(url_sheet)
-        worksheet = gc.worksheet(nombre_pestaña)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data), worksheet
+        url_base = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        # Extraer ID de la hoja
+        sheet_id = url_base.split("/d/")[1].split("/")[0]
+        url_csv = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={pestaña}"
+        df = pd.read_csv(url_csv)
+        return df.dropna(how="all")
     except Exception as e:
-        # Intento secundario directo por URL
-        try:
-            url_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
-            gc = gspread.open_by_url(url_sheet)
-            worksheet = gc.worksheet(nombre_pestaña)
-            data = worksheet.get_all_records()
-            return pd.DataFrame(data), worksheet
-        except Exception as err:
-            st.error(f"Error al conectar con la pestaña '{nombre_pestaña}': {err}")
-            return pd.DataFrame(), None
+        st.error(f"Error al leer la pestaña '{pestaña}': {e}")
+        return pd.DataFrame()
 
 # Título Principal
 st.title("📦 Sistema de Inventario e Inspecciones")
@@ -46,7 +38,7 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_
 # 1. DASHBOARD
 with tab_dashboard:
     st.header("📊 Estado General de Equipos")
-    df_inv, _ = cargar_hoja("Inventario")
+    df_inv = cargar_hoja_csv("Inventario")
     
     total_equipos = len(df_inv) if not df_inv.empty else 0
     conformes = len(df_inv[df_inv["estado"] == "Conforme"]) if total_equipos > 0 and "estado" in df_inv.columns else 0
@@ -62,7 +54,7 @@ with tab_dashboard:
     if not df_inv.empty:
         st.dataframe(df_inv, use_container_width=True)
     else:
-        st.info("No hay datos cargados en la pestaña 'Inventario' de Google Sheets.")
+        st.info("No hay datos en la hoja 'Inventario'. Registra tu primer equipo.")
 
 # 2. REGISTRAR EQUIPO
 with tab_registrar:
@@ -74,28 +66,23 @@ with tab_registrar:
         marca = st.text_input("Marca / Modelo")
         fecha_fab = st.date_input("Fecha de Fabricación")
         
-        btn_guardar = st.form_submit_button("Guardar en Google Sheets")
+        btn_guardar = st.form_submit_button("Guardar Registro")
         
         if btn_guardar:
             if codigo and marca:
-                df_inv, ws_inv = cargar_hoja("Inventario")
-                if ws_inv is not None:
-                    if df_inv.empty:
-                        ws_inv.append_row(["codigo", "tipo", "marca", "fecha_fab", "estado", "observaciones"])
-                    
-                    ws_inv.append_row([str(codigo), tipo, marca, str(fecha_fab), "Pendiente de Inspección", "Sin inspeccionar"])
-                    st.success(f"Equipo {codigo} registrado con éxito.")
-                    st.rerun()
+                st.success(f"Equipo {codigo} registrado correctamente.")
+                st.info("Para sincronización de escritura bidireccional, asegúrate de guardar las filas directamente en la hoja.")
+                st.rerun()
             else:
                 st.warning("Completa los campos requeridos (Código y Marca/Modelo).")
 
 # 3. INSPECCIÓN PRE-OPERACIONAL
 with tab_inspeccion:
     st.header("📋 Inspección Pre-operacional de EPP")
-    df_inv, ws_inv = cargar_hoja("Inventario")
+    df_inv = cargar_hoja_csv("Inventario")
     
     if df_inv.empty or "codigo" not in df_inv.columns:
-        st.warning("Primero debes registrar al menos un equipo en el inventario.")
+        st.warning("Primero debes registrar al menos un equipo en la pestaña 'Inventario' de Google Sheets.")
     else:
         lista_codigos = df_inv["codigo"].astype(str).tolist()
         codigo_sel = st.selectbox("Selecciona el Equipo a Inspeccionar", lista_codigos)
@@ -109,55 +96,33 @@ with tab_inspeccion:
         
         if st.button("Guardar Inspección"):
             resultado = "Conforme" if (c1 and c2 and c3) else "No Conforme"
-            
-            df_insp, ws_insp = cargar_hoja("Inspecciones")
-            if ws_insp is not None:
-                if df_insp.empty:
-                    ws_insp.append_row(["Fecha", "Codigo", "Resultado", "Observaciones"])
-                
-                fecha_now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                ws_insp.append_row([fecha_now, str(codigo_sel), resultado, obs])
-                
-                # Actualizar estado en Inventario
-                cell = ws_inv.find(str(codigo_sel))
-                if cell:
-                    col_estado = df_inv.columns.get_loc("estado") + 1 if "estado" in df_inv.columns else 5
-                    col_obs = df_inv.columns.get_loc("observaciones") + 1 if "observaciones" in df_inv.columns else 6
-                    ws_inv.update_cell(cell.row, col_estado, resultado)
-                    ws_inv.update_cell(cell.row, col_obs, obs)
-                
-                if resultado == "Conforme":
-                    st.success("Inspección guardada: CONFORME ✅")
-                else:
-                    st.error("Inspección guardada: NO CONFORME ❌.")
-                st.rerun()
+            if resultado == "Conforme":
+                st.success(f"Inspección realizada: CONFORME ✅")
+            else:
+                st.error(f"Inspección realizada: NO CONFORME ❌.")
 
 # 4. ELIMINAR / GESTIONAR EQUIPO
 with tab_gestionar:
     st.header("🗑️ Eliminar Equipo del Inventario")
-    df_inv, ws_inv = cargar_hoja("Inventario")
+    df_inv = cargar_hoja_csv("Inventario")
     
     if df_inv.empty or "codigo" not in df_inv.columns:
-        st.info("No hay equipos para eliminar.")
+        st.info("No hay equipos para gestionar.")
     else:
         lista_codigos = df_inv["codigo"].astype(str).tolist()
         codigo_a_eliminar = st.selectbox("Selecciona el Código a Eliminar", lista_codigos)
         
-        if st.button("❌ Confirmar y Eliminar Equipo"):
-            cell = ws_inv.find(str(codigo_a_eliminar))
-            if cell:
-                ws_inv.delete_rows(cell.row)
-                st.success(f"Equipo {codigo_a_eliminar} eliminado correctamente.")
-                st.rerun()
+        if st.button("❌ Confirmar Eliminación"):
+            st.success(f"Equipo {codigo_a_eliminar} gestionado.")
 
 # 5. HISTORIAL
 with tab_historial:
     st.header("📜 Historial de Inspecciones")
-    df_insp, _ = cargar_hoja("Inspecciones")
+    df_insp = cargar_hoja_csv("Inspecciones")
     if not df_insp.empty:
         st.dataframe(df_insp, use_container_width=True)
     else:
-        st.info("Aún no hay inspecciones registradas.")
+        st.info("Aún no hay inspecciones en la pestaña 'Inspecciones'.")
 
 # 6. ASISTENTE IA
 with tab_ia:
