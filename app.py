@@ -139,20 +139,28 @@ elif menu == "Historial":
 elif menu == "Asistente IA":
     st.header("🤖 Asistente Técnico de Inspección (IA)")
     
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-        
-        pregunta = st.text_input("Consulta norma, criterio de rechazo o especificación técnica:")
-        
-        if st.button("Consultar IA"):
-            if pregunta:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(
-                    f"Eres un inspector experto en Seguridad Industrial y EPP. Responde de forma clara y concisa: {pregunta}"
-                )
-                st.write(response.text)
-            else:
-                st.warning("Escribe una consulta primero.")
-    except Exception as e:
-        st.error("No se pudo conectar con la IA. Verifica que tu API KEY esté guardada en los Secrets de Streamlit.")
+    pregunta = st.text_input("Consulta norma, criterio de rechazo o especificación técnica:")
+    btn_consultar = st.button("Consultar IA")
+    
+    if btn_consultar:
+        if pregunta:
+            try:
+                # 1. Verificar si existe la clave en Secrets
+                if "GEMINI_API_KEY" not in st.secrets:
+                    st.error("❌ No se encontró la etiqueta 'GEMINI_API_KEY' en Secrets de Streamlit.")
+                else:
+                    api_key = st.secrets["GEMINI_API_KEY"].strip()
+                    genai.configure(api_key=api_key)
+                    
+                    # 2. Consultar modelo
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(
+                        f"Eres un inspector experto en Seguridad Industrial y EPP. Responde de forma clara y concisa: {pregunta}"
+                    )
+                    st.write(response.text)
+            except Exception as e:
+                # Muestra el detalle real de la falla
+                st.error(f"❌ Error al consultar la IA: {e}")
+        else:
+            st.warning("Escribe una consulta primero.")
+
