@@ -2,8 +2,13 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# Configuración de la página
-st.set_page_config(page_title="Sistema de Inventario e Inspecciones", page_icon="📦", layout="wide")
+# Configuración de la página (panel lateral abierto por defecto)
+st.set_page_config(
+    page_title="Sistema de Inventario e Inspecciones", 
+    page_icon="📦", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # Inicialización segura de la base de datos en sesión
 if "inventario" not in st.session_state or not isinstance(st.session_state.inventario, list):
@@ -15,11 +20,23 @@ if "inspecciones" not in st.session_state or not isinstance(st.session_state.ins
 # Título Principal
 st.title("📦 Sistema de Inventario e Inspecciones")
 
-# Menú Lateral
-menu = st.sidebar.selectbox(
-    "Navegación", 
-    ["Dashboard", "Registrar Equipo", "Inspección Pre-operacional", "Eliminar / Gestionar Equipo", "Historial", "Asistente IA"]
+# --- MENÚ LATERAL FIJO (LISTA DE OPCIONES) ---
+st.sidebar.title("📌 Menú de Navegación")
+st.sidebar.markdown("---")
+
+menu = st.sidebar.radio(
+    "Selecciona una sección:", 
+    [
+        "Dashboard", 
+        "Registrar Equipo", 
+        "Inspección Pre-operacional", 
+        "Eliminar / Gestionar Equipo", 
+        "Historial", 
+        "Asistente IA"
+    ]
 )
+
+st.sidebar.markdown("---")
 
 # 1. DASHBOARD
 if menu == "Dashboard":
@@ -185,6 +202,3 @@ elif menu == "Asistente IA":
                 st.error(f"❌ Error de conexión: {e}")
         else:
             st.warning("Escribe una consulta primero.")
-
-
-
