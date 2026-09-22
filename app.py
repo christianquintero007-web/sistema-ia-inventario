@@ -151,27 +151,40 @@ elif menu == "Asistente IA":
                     api_key = st.secrets["GEMINI_API_KEY"].strip()
                     genai.configure(api_key=api_key)
                     
-                    # Lista de modelos compatibles
-                    modelos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro']
+                    # Obtener automáticamente los modelos disponibles para la clave
+                    modelos_disponibles = []
+                    try:
+                        for m in genai.list_models():
+                            if 'generateContent' in m.supported_generation_methods:
+                                modelos_disponibles.append(m.name)
+                    except Exception:
+                        pass
+                    
+                    # Si no se detectaron dinámicamente, usar lista de respaldo
+                    if not modelos_disponibles:
+                        modelos_disponibles = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro']
                     
                     exito = False
-                    for nombre_modelo in modelos:
+                    ultimo_error = ""
+                    for nombre in modelos_disponibles:
                         try:
-                            model = genai.GenerativeModel(nombre_modelo)
+                            model = genai.GenerativeModel(nombre)
                             response = model.generate_content(
                                 f"Eres un inspector experto en Seguridad Industrial y EPP. Responde de forma clara y concisa: {pregunta}"
                             )
                             st.write(response.text)
                             exito = True
                             break
-                        except Exception:
+                        except Exception as err:
+                            ultimo_error = str(err)
                             continue
                     
                     if not exito:
-                        st.error("❌ No se encontró un modelo disponible. Revisa tu clave de API.")
+                        st.error(f"❌ Detalle del error: {ultimo_error}")
             except Exception as e:
-                st.error(f"❌ Error al consultar la IA: {e}")
+                st.error(f"❌ Error de conexión: {e}")
         else:
             st.warning("Escribe una consulta primero.")
+
 
 
