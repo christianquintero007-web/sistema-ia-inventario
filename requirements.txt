@@ -1,4 +1,5 @@
-pandas
-google-generativeai
+streamlit
 streamlit-gsheets
-openpyxl
+google-generativeai
+pandas
+pillow
