@@ -84,7 +84,7 @@ with tab_registrar:
     
     with st.form("form_registro", clear_on_submit=True):
         codigo = st.text_input("Código / N° de Serie (ej. ARN-2026-01)").strip().upper()
-        tipo = st.selectbox("Tipo de EPP", [
+        modelo = st.selectbox("Tipo de EPP", [
             "Arnés de Seguridad", 
             "Línea de Vida / Lanyard", 
             "Casco de Protección", 
