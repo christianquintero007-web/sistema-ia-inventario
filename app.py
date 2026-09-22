@@ -5,12 +5,12 @@ import google.generativeai as genai
 # Configuración de la página
 st.set_page_config(page_title="Sistema de Inventario e Inspecciones", page_icon="📦", layout="wide")
 
-# Inicializar bases de datos en sesión
-if "inventario" not in st.session_state:
-    st.session_state.inventario = pd.DataFrame(columns=["Codigo", "Tipo", "Marca_Modelo", "Fecha_Fab"])
+# Inicialización segura de la base de datos en sesión
+if "inventario" not in st.session_state or not isinstance(st.session_state.inventario, list):
+    st.session_state.inventario = []
 
-if "inspecciones" not in st.session_state:
-    st.session_state.inspecciones = pd.DataFrame(columns=["Fecha", "Codigo", "Cinta_Textil", "Costuras", "Hebillas", "Observaciones", "Resultado"])
+if "inspecciones" not in st.session_state or not isinstance(st.session_state.inspecciones, list):
+    st.session_state.inspecciones = []
 
 # Título Principal
 st.title("📦 Sistema de Inventario e Inspecciones")
@@ -28,12 +28,8 @@ if menu == "Dashboard":
     col1, col2, col3 = st.columns(3)
     total_equipos = len(st.session_state.inventario)
     
-    if len(st.session_state.inspecciones) > 0:
-        conformes = len(st.session_state.inspecciones[st.session_state.inspecciones["Resultado"] == "CONFORME ✅"])
-        no_conformes = len(st.session_state.inspecciones[st.session_state.inspecciones["Resultado"] == "NO CONFORME ❌"])
-    else:
-        conformes = 0
-        no_conformes = 0
+    conformes = sum(1 for e in st.session_state.inventario if e.get("estado") == "Conforme")
+    no_conformes = sum(1 for e in st.session_state.inventario if e.get("estado") == "No Conforme")
         
     col1.metric("Total de Equipos", total_equipos)
     col2.metric("Conformes ✅", conformes)
@@ -41,8 +37,9 @@ if menu == "Dashboard":
     
     st.divider()
     st.subheader("Inventario Actual")
-    if not st.session_state.inventario.empty:
-        st.dataframe(st.session_state.inventario, use_container_width=True)
+    if len(st.session_state.inventario) > 0:
+        df = pd.DataFrame(st.session_state.inventario)
+        st.dataframe(df, use_container_width=True)
     else:
         st.info("No hay equipos en la base de datos. Ve a 'Registrar Equipo' para agregar el primero.")
 
@@ -60,17 +57,18 @@ elif menu == "Registrar Equipo":
         
         if btn_guardar:
             if codigo and marca:
-                # Verificar si ya existe
-                if codigo in st.session_state.inventario["Codigo"].values:
+                codigos_existentes = [eq["codigo"] for eq in st.session_state.inventario]
+                if codigo in codigos_existentes:
                     st.error(f"El equipo con código {codigo} ya está registrado.")
                 else:
-                    nuevo_registro = pd.DataFrame([{
-                        "Codigo": codigo,
-                        "Tipo": tipo,
-                        "Marca_Modelo": marca,
-                        "Fecha_Fab": str(fecha_fab)
-                    }])
-                    st.session_state.inventario = pd.concat([st.session_state.inventario, nuevo_registro], ignore_index=True)
+                    st.session_state.inventario.append({
+                        "codigo": codigo,
+                        "tipo": tipo,
+                        "marca": marca,
+                        "fecha_fab": str(fecha_fab),
+                        "estado": "Pendiente de Inspección",
+                        "observaciones": "Sin inspeccionar"
+                    })
                     st.success(f"Equipo {codigo} registrado correctamente.")
             else:
                 st.warning("Por favor completa los campos de Código y Marca / Modelo.")
@@ -79,10 +77,10 @@ elif menu == "Registrar Equipo":
 elif menu == "Inspección Pre-operacional":
     st.header("📋 Inspección Pre-operacional de EPP")
     
-    if st.session_state.inventario.empty:
+    if len(st.session_state.inventario) == 0:
         st.warning("Primero debes registrar al menos un equipo en el inventario.")
     else:
-        lista_codigos = st.session_state.inventario["Codigo"].tolist()
+        lista_codigos = [eq["codigo"] for eq in st.session_state.inventario]
         codigo_sel = st.selectbox("Selecciona el Equipo a Inspeccionar", lista_codigos)
         
         st.subheader("Puntos de Verificación Técnica")
@@ -93,46 +91,47 @@ elif menu == "Inspección Pre-operacional":
         obs = st.text_area("Observaciones técnicas")
         
         if st.button("Guardar Inspección"):
-            resultado = "CONFORME ✅" if (c1 and c2 and c3) else "NO CONFORME ❌"
+            resultado = "Conforme" if (c1 and c2 and c3) else "No Conforme"
             
-            nueva_inspeccion = pd.DataFrame([{
+            for eq in st.session_state.inventario:
+                if eq["codigo"] == codigo_sel:
+                    eq["estado"] = resultado
+                    eq["observaciones"] = obs
+            
+            st.session_state.inspecciones.append({
                 "Fecha": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
                 "Codigo": codigo_sel,
-                "Cinta_Textil": "OK" if c1 else "FALLA",
-                "Costuras": "OK" if c2 else "FALLA",
-                "Hebillas": "OK" if c3 else "FALLA",
-                "Observaciones": obs,
-                "Resultado": resultado
-            }])
-            st.session_state.inspecciones = pd.concat([st.session_state.inspecciones, nueva_inspeccion], ignore_index=True)
+                "Resultado": resultado,
+                "Observaciones": obs
+            })
             
-            if resultado == "CONFORME ✅":
-                st.success(f"Inspección guardada: {resultado}")
+            if resultado == "Conforme":
+                st.success(f"Inspección guardada: CONFORME ✅")
             else:
-                st.error(f"Inspección guardada: {resultado}. Se requiere retiro de servicio.")
+                st.error(f"Inspección guardada: NO CONFORME ❌. Se requiere retiro de servicio.")
 
 # 4. ELIMINAR / GESTIONAR EQUIPO
 elif menu == "Eliminar / Gestionar Equipo":
     st.header("🗑️ Eliminar Equipo del Inventario")
     
-    if st.session_state.inventario.empty:
+    if len(st.session_state.inventario) == 0:
         st.info("No hay equipos para eliminar.")
     else:
-        lista_codigos = st.session_state.inventario["Codigo"].tolist()
+        lista_codigos = [eq["codigo"] for eq in st.session_state.inventario]
         codigo_a_eliminar = st.selectbox("Selecciona el Código del Equipo a Eliminar", lista_codigos)
         
         st.warning(f"⚠️ ¿Estás seguro de que deseas eliminar el equipo **{codigo_a_eliminar}**?")
         
         if st.button("❌ Confirmar y Eliminar Equipo"):
-            # Eliminar del inventario
-            st.session_state.inventario = st.session_state.inventario[st.session_state.inventario["Codigo"] != codigo_a_eliminar]
+            st.session_state.inventario = [eq for eq in st.session_state.inventario if eq["codigo"] != codigo_a_eliminar]
             st.success(f"El equipo {codigo_a_eliminar} ha sido eliminado correctamente del inventario.")
 
 # 5. HISTORIAL
 elif menu == "Historial":
     st.header("📜 Historial de Inspecciones")
-    if not st.session_state.inspecciones.empty:
-        st.dataframe(st.session_state.inspecciones, use_container_width=True)
+    if len(st.session_state.inspecciones) > 0:
+        df_insp = pd.DataFrame(st.session_state.inspecciones)
+        st.dataframe(df_insp, use_container_width=True)
     else:
         st.info("Aún no se han realizado inspecciones.")
 
