@@ -1,41 +1,43 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-from streamlit_gsheets import GSheetsConnection
+import gspread
 
-# Configuración de la página (Ancho completo)
+# Configuración de la página
 st.set_page_config(
     page_title="Sistema de Inventario e Inspecciones", 
     page_icon="📦", 
     layout="wide"
 )
 
-# Inicialización de conexión con Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# Funciones auxiliares para leer datos de Google Sheets de forma segura
-def cargar_inventario():
+# Conexión a Google Sheets mediante gspread
+@st.cache_resource
+def obtener_cliente_gsheets():
     try:
-        df = conn.read(worksheet="Inventario", ttl="5s")
-        if df.empty or "codigo" not in df.columns:
-            return pd.DataFrame(columns=["codigo", "tipo", "marca", "fecha_fab", "estado", "observaciones"])
-        return df.dropna(how="all")
+        # Intenta conectar con las credenciales o URL pública configurada
+        url_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        gc = gspread.public_url(url_sheet) if hasattr(gspread, 'public_url') else gspread.open_by_url(url_sheet)
+        return gc
     except Exception:
-        return pd.DataFrame(columns=["codigo", "tipo", "marca", "fecha_fab", "estado", "observaciones"])
+        # Fallback usando apertura por URL directa
+        url_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        return gspread.open_by_url(url_sheet)
 
-def cargar_inspecciones():
+def cargar_hoja(nombre_pestaña):
     try:
-        df = conn.read(worksheet="Inspecciones", ttl="5s")
-        if df.empty or "Fecha" not in df.columns:
-            return pd.DataFrame(columns=["Fecha", "Codigo", "Resultado", "Observaciones"])
-        return df.dropna(how="all")
-    except Exception:
-        return pd.DataFrame(columns=["Fecha", "Codigo", "Resultado", "Observaciones"])
+        url_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        gc = gspread.open_by_url(url_sheet)
+        worksheet = gc.worksheet(nombre_pestaña)
+        data = worksheet.get_all_records()
+        return pd.DataFrame(data), worksheet
+    except Exception as e:
+        st.error(f"Error al conectar con la pestaña '{nombre_pestaña}': {e}")
+        return pd.DataFrame(), None
 
 # Título Principal
 st.title("📦 Sistema de Inventario e Inspecciones")
 
-# --- NAVEGACIÓN SUPERIOR TIPO TABLA / PESTAÑAS (HIPERVÍNCULOS) ---
+# Navegación Superior
 tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_ia = st.tabs([
     "📊 Dashboard", 
     "➕ Registrar Equipo", 
@@ -48,23 +50,23 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_
 # 1. DASHBOARD
 with tab_dashboard:
     st.header("📊 Estado General de Equipos")
-    df_inv = cargar_inventario()
+    df_inv, _ = cargar_hoja("Inventario")
     
-    col1, col2, col3 = st.columns(3)
-    total_equipos = len(df_inv)
-    conformes = len(df_inv[df_inv["estado"] == "Conforme"]) if total_equipos > 0 else 0
-    no_conformes = len(df_inv[df_inv["estado"] == "No Conforme"]) if total_equipos > 0 else 0
+    total_equipos = len(df_inv) if not df_inv.empty else 0
+    conformes = len(df_inv[df_inv["estado"] == "Conforme"]) if total_equipos > 0 and "estado" in df_inv.columns else 0
+    no_conformes = len(df_inv[df_inv["estado"] == "No Conforme"]) if total_equipos > 0 and "estado" in df_inv.columns else 0
         
-    col1.metric("Total de Equipos", total_equipos)
-    col2.metric("Conformes ✅", conformes)
-    col3.metric("No Conformes ❌", no_conformes)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total de Equipos", total_equipos)
+    c2.metric("Conformes ✅", conformes)
+    c3.metric("No Conformes ❌", no_conformes)
     
     st.divider()
-    st.subheader("Inventario Actual (Sincronizado en la Nube)")
-    if total_equipos > 0:
+    st.subheader("Inventario Actual en Google Sheets")
+    if not df_inv.empty:
         st.dataframe(df_inv, use_container_width=True)
     else:
-        st.info("No hay equipos registrados en la base de datos de Google Sheets. Ve a 'Registrar Equipo' para agregar el primero.")
+        st.info("No hay datos en la hoja 'Inventario' de Google Sheets.")
 
 # 2. REGISTRAR EQUIPO
 with tab_registrar:
@@ -80,32 +82,24 @@ with tab_registrar:
         
         if btn_guardar:
             if codigo and marca:
-                df_inv = cargar_inventario()
-                if codigo in df_inv["codigo"].astype(str).values:
-                    st.error(f"El equipo con código {codigo} ya está registrado en la base de datos.")
-                else:
-                    nuevo_registro = pd.DataFrame([{
-                        "codigo": str(codigo),
-                        "tipo": tipo,
-                        "marca": marca,
-                        "fecha_fab": str(fecha_fab),
-                        "estado": "Pendiente de Inspección",
-                        "observaciones": "Sin inspeccionar"
-                    }])
+                df_inv, ws_inv = cargar_hoja("Inventario")
+                if ws_inv is not None:
+                    # Si la hoja está vacía, poner encabezados
+                    if df_inv.empty:
+                        ws_inv.append_row(["codigo", "tipo", "marca", "fecha_fab", "estado", "observaciones"])
                     
-                    df_actualizado = pd.concat([df_inv, nuevo_registro], ignore_index=True)
-                    conn.update(worksheet="Inventario", data=df_actualizado)
-                    st.success(f"Equipo {codigo} guardado exitosamente en Google Sheets.")
+                    ws_inv.append_row([str(codigo), tipo, marca, str(fecha_fab), "Pendiente de Inspección", "Sin inspeccionar"])
+                    st.success(f"Equipo {codigo} registrado con éxito en la nube.")
                     st.rerun()
             else:
-                st.warning("Por favor completa los campos de Código y Marca / Modelo.")
+                st.warning("Completa los campos requeridos (Código y Marca/Modelo).")
 
 # 3. INSPECCIÓN PRE-OPERACIONAL
 with tab_inspeccion:
     st.header("📋 Inspección Pre-operacional de EPP")
-    df_inv = cargar_inventario()
+    df_inv, ws_inv = cargar_hoja("Inventario")
     
-    if df_inv.empty:
+    if df_inv.empty or "codigo" not in df_inv.columns:
         st.warning("Primero debes registrar al menos un equipo en el inventario.")
     else:
         lista_codigos = df_inv["codigo"].astype(str).tolist()
@@ -121,102 +115,72 @@ with tab_inspeccion:
         if st.button("Guardar Inspección"):
             resultado = "Conforme" if (c1 and c2 and c3) else "No Conforme"
             
-            # Actualizar el estado en la pestaña Inventario
-            df_inv.loc[df_inv["codigo"].astype(str) == str(codigo_sel), "estado"] = resultado
-            df_inv.loc[df_inv["codigo"].astype(str) == str(codigo_sel), "observaciones"] = obs
-            conn.update(worksheet="Inventario", data=df_inv)
-            
-            # Guardar en la pestaña Inspecciones
-            df_insp = cargar_inspecciones()
-            nueva_insp = pd.DataFrame([{
-                "Fecha": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
-                "Codigo": str(codigo_sel),
-                "Resultado": resultado,
-                "Observaciones": obs
-            }])
-            
-            df_insp_actualizado = pd.concat([df_insp, nueva_insp], ignore_index=True)
-            conn.update(worksheet="Inspecciones", data=df_insp_actualizado)
-            
-            if resultado == "Conforme":
-                st.success(f"Inspección guardada: CONFORME ✅")
-            else:
-                st.error(f"Inspección guardada: NO CONFORME ❌. Se requiere retiro de servicio.")
-            st.rerun()
+            # Guardar registro en la pestaña Inspecciones
+            df_insp, ws_insp = cargar_hoja("Inspecciones")
+            if ws_insp is not None:
+                if df_insp.empty:
+                    ws_insp.append_row(["Fecha", "Codigo", "Resultado", "Observaciones"])
+                
+                fecha_now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                ws_insp.append_row([fecha_now, str(codigo_sel), resultado, obs])
+                
+                # Actualizar el estado en Inventario
+                cell = ws_inv.find(str(codigo_sel))
+                if cell:
+                    col_estado = df_inv.columns.get_loc("estado") + 1 if "estado" in df_inv.columns else 5
+                    col_obs = df_inv.columns.get_loc("observaciones") + 1 if "observaciones" in df_inv.columns else 6
+                    ws_inv.update_cell(cell.row, col_estado, resultado)
+                    ws_inv.update_cell(cell.row, col_obs, obs)
+                
+                if resultado == "Conforme":
+                    st.success(f"Inspección guardada: CONFORME ✅")
+                else:
+                    st.error(f"Inspección guardada: NO CONFORME ❌.")
+                st.rerun()
 
 # 4. ELIMINAR / GESTIONAR EQUIPO
 with tab_gestionar:
     st.header("🗑️ Eliminar Equipo del Inventario")
-    df_inv = cargar_inventario()
+    df_inv, ws_inv = cargar_hoja("Inventario")
     
-    if df_inv.empty:
+    if df_inv.empty or "codigo" not in df_inv.columns:
         st.info("No hay equipos para eliminar.")
     else:
         lista_codigos = df_inv["codigo"].astype(str).tolist()
-        codigo_a_eliminar = st.selectbox("Selecciona el Código del Equipo a Eliminar", lista_codigos)
-        
-        st.warning(f"⚠️ ¿Estás seguro de que deseas eliminar el equipo **{codigo_a_eliminar}**?")
+        codigo_a_eliminar = st.selectbox("Selecciona el Código a Eliminar", lista_codigos)
         
         if st.button("❌ Confirmar y Eliminar Equipo"):
-            df_filtrado = df_inv[df_inv["codigo"].astype(str) != str(codigo_a_eliminar)]
-            conn.update(worksheet="Inventario", data=df_filtrado)
-            st.success(f"El equipo {codigo_a_eliminar} ha sido eliminado de Google Sheets.")
-            st.rerun()
+            cell = ws_inv.find(str(codigo_a_eliminar))
+            if cell:
+                ws_inv.delete_rows(cell.row)
+                st.success(f"Equipo {codigo_a_eliminar} eliminado correctamente de Google Sheets.")
+                st.rerun()
 
 # 5. HISTORIAL
 with tab_historial:
     st.header("📜 Historial de Inspecciones")
-    df_insp = cargar_inspecciones()
+    df_insp, _ = cargar_hoja("Inspecciones")
     if not df_insp.empty:
         st.dataframe(df_insp, use_container_width=True)
     else:
-        st.info("Aún no se han realizado inspecciones.")
+        st.info("Aún no hay inspecciones registradas.")
 
 # 6. ASISTENTE IA
 with tab_ia:
     st.header("🤖 Asistente Técnico de Inspección (IA)")
-    
     pregunta = st.text_input("Consulta norma, criterio de rechazo o especificación técnica:")
-    btn_consultar = st.button("Consultar IA")
     
-    if btn_consultar:
+    if st.button("Consultar IA"):
         if pregunta:
             try:
                 if "GEMINI_API_KEY" not in st.secrets:
-                    st.error("❌ No se encontró la etiqueta 'GEMINI_API_KEY' en Secrets de Streamlit.")
+                    st.error("❌ Falta GEMINI_API_KEY en Secrets.")
                 else:
-                    api_key = st.secrets["GEMINI_API_KEY"].strip()
-                    genai.configure(api_key=api_key)
-                    
-                    modelos_disponibles = []
-                    try:
-                        for m in genai.list_models():
-                            if 'generateContent' in m.supported_generation_methods:
-                                modelos_disponibles.append(m.name)
-                    except Exception:
-                        pass
-                    
-                    if not modelos_disponibles:
-                        modelos_disponibles = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro']
-                    
-                    exito = False
-                    ultimo_error = ""
-                    for nombre in modelos_disponibles:
-                        try:
-                            model = genai.GenerativeModel(nombre)
-                            response = model.generate_content(
-                                f"Eres un inspector experto en Seguridad Industrial y EPP. Responde de forma clara y concisa: {pregunta}"
-                            )
-                            st.write(response.text)
-                            exito = True
-                            break
-                        except Exception as err:
-                            ultimo_error = str(err)
-                            continue
-                    
-                    if not exito:
-                        st.error(f"❌ Detalle del error: {ultimo_error}")
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(
+                        f"Eres un inspector experto en Seguridad Industrial y EPP. Responde conciso: {pregunta}"
+                    )
+                    st.write(response.text)
             except Exception as e:
-                st.error(f"❌ Error de conexión: {e}")
-        else:
-            st.warning("Escribe una consulta primero.")
+                st.error(f"❌ Error: {e}")
