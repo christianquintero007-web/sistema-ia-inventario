@@ -1,6 +1,6 @@
 streamlit
+streamlit-gsheets
 pandas
-gspread
 google-generativeai
 openpyxl
 pillow
