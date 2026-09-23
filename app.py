@@ -209,7 +209,7 @@ with tab_historial:
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
 # ---------------------------------------------------------
-# 5. ASISTENTE IA (ROL TÉCNICO MULTIDISCIPLINARIO + FALLBACK)
+# 5. ASISTENTE IA (DETECCIÓN AUTOMÁTICA DE MODELOS VIGENTES)
 # ---------------------------------------------------------
 with tab_ia:
     st.header("🤖 Asistente Inteligente y Consultor Técnico")
@@ -225,18 +225,6 @@ with tab_ia:
                 else:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
                     
-                    # Lista de modelos compatibles
-                    modelos_a_probar = [
-                        'gemini-2.5-flash',
-                        'gemini-2.0-flash',
-                        'gemini-1.5-flash-latest',
-                        'gemini-1.5-flash',
-                        'gemini-1.5-pro'
-                    ]
-                    
-                    response = None
-                    modelo_activo = None
-                    
                     prompt = f"""
                     Eres un asistente inteligente útil y versátil. 
                     Tienes especial experiencia en Seguridad Industrial, Inspección de EPP de Altura y Normatividad (NOM-017-STPS, OSHA, NFPA), 
@@ -245,20 +233,30 @@ with tab_ia:
                     Consulta del usuario: {pregunta}
                     """
                     
-                    with st.spinner("Procesando consulta..."):
-                        for mod in modelos_a_probar:
+                    response = None
+                    modelo_usado = None
+                    
+                    with st.spinner("Procesando consulta con la IA..."):
+                        # Obtener automáticamente la lista de modelos activos en tiempo real
+                        modelos_disponibles = [
+                            m.name for m in genai.list_models() 
+                            if 'generateContent' in m.supported_generation_methods
+                        ]
+                        
+                        # Probar con los modelos activos hasta que uno responda
+                        for mod_name in modelos_disponibles:
                             try:
-                                model = genai.GenerativeModel(mod)
+                                model = genai.GenerativeModel(mod_name)
                                 response = model.generate_content(prompt)
-                                modelo_activo = mod
+                                modelo_usado = mod_name.replace("models/", "")
                                 break
                             except Exception:
                                 continue
                         
                         if response and hasattr(response, 'text'):
                             st.markdown(response.text)
-                            st.caption(f"🤖 *Respuesta generada por: `{modelo_activo}`*")
+                            st.caption(f"🤖 *Respuesta generada por el modelo activo: `{modelo_usado}`*")
                         else:
-                            st.error("❌ No se pudo conectar con los modelos de Gemini. Verifica tu clave API Key en Secrets.")
+                            st.error("❌ No se encontró ningún modelo activo o la clave 'GEMINI_API_KEY' en Secrets no es válida.")
             except Exception as e:
                 st.error(f"Error al procesar la consulta: {e}")
