@@ -44,7 +44,7 @@ CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
 
 # ---------------------------------------------------------
-# DICCIONARIO MAESTRO DE CATÁLOGO EPP (AMPLIADO Y PRECISO)
+# DICCIONARIO MAESTRO DE CATÁLOGO EPP (ESTRICTO Y AUTORIZADO)
 # ---------------------------------------------------------
 CATALOGO_EQUIPOS_EPP = {
     "VERTEX": {"marca": "PETZL", "descripcion": "CASCO"},
@@ -55,24 +55,22 @@ CATALOGO_EQUIPOS_EPP = {
     "AVAO FAST": {"marca": "PETZL", "descripcion": "ARNÉS"},
     "AVAO BOD": {"marca": "PETZL", "descripcion": "ARNÉS"},
     "VOLT": {"marca": "PETZL", "descripcion": "ARNÉS"},
-    "AUSTIN": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
-    "FLEX 383": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
-    "C226H": {"marca": "PROTECTA", "descripcion": "GANCHO"},
+    "AUSTIN": {"marca": "IRUDEK", "descripcion": "GANCHO DE GRAN APERTURA"},
+    "FLEX 383": {"marca": "IRUDEK", "descripcion": "GANCHO DE GRAN APERTURA"},
+    "C226H": {"marca": "PROTECTA", "descripcion": "GANCHO DE GRAN APERTURA"},
     "3100431": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
     "3100516": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
     "ANNEAU C40": {"marca": "PETZL", "descripcion": "CINTA DE ANCLAJE"},
     "ANNEAU": {"marca": "PETZL", "descripcion": "CINTA DE ANCLAJE"},
-    "GRILLON HOOK": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA"},
-    "GRILLON": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA"},
-    "CATCH FIX": {"marca": "ROCK EMPIRE", "descripcion": "POSICIONADOR"},
+    "GRILLON HOOK": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA 3M"},
+    "GRILLON": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA 3M"},
+    "CATCH FIX": {"marca": "ROCK EMPIRE", "descripcion": "POSICIONADOR / ESLINGA 3M"},
     "CROLL": {"marca": "PETZL", "descripcion": "BLOQUEADOR CROLL"},
     "OK TL": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "OK": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "AM'D": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "MAGNUM": {"marca": "ROCK EMPIRE", "descripcion": "MOSQUETÓN"},
-    "ABSORBICA Y FLEX 150": {"marca": "PETZL", "descripcion": "ABSORBEDOR CON ESLINGA 150CM"},
-    "ABSORBICA Y FLEX": {"marca": "PETZL", "descripcion": "ABSORBEDOR CON ESLINGA"},
-    "SKC H04 EVO": {"marca": "SOMAIN", "descripcion": "ANTICAÍDAS DESLIZANTE"},
+    "SKC H04 EVO": {"marca": "SOMAIN", "descripcion": "ANTICAÍDAS"},
     "SOLLVIGO": {"marca": "HONEYWELL", "descripcion": "ANTICAÍDAS"},
     "SÖLL VI-GO": {"marca": "HONEYWELL", "descripcion": "ANTICAÍDAS"},
     "NOVAX": {"marca": "NOVAX", "descripcion": "GUANTE DIELÉCTRICO 1000V"}
@@ -126,18 +124,20 @@ elif password_ingresada != "":
     st.sidebar.error("❌ Contraseña incorrecta")
 
 # ---------------------------------------------------------
-# FILTRO ESTRICTO DE ELEMENTOS SERIABLES Y GUANTES DIELÉCTRICOS
+# FILTRO ESTRICTO DE ELEMENTOS SERIABLES Y BLOQUEO DE CONSUMIBLES
 # ---------------------------------------------------------
 def es_item_valido_o_excepcion(linea_texto):
     texto_upper = linea_texto.upper()
 
+    # Bloqueo total de consumibles no deseados (lentes, tapones, etc.)
     palabras_prohibidas = [
         "WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09", "FIRMA", 
         "RECIBE", "NOMBRE", "FECHA", "ITEM", "TALLA", "OBSERVACIONES", 
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
-        "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
+        "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER",
+        "TAPONES", "GUANTES DE CARNAZA", "PROTECCION AUDITIVA"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "ARNES", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "STRATO", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE", "60", "120"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "ARNES", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "VERTEX", "STRATO", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE", "RETRACTIL", "RETRÁCTIL", "MOSQUETON", "MOSQUETÓN", "GANCHO"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
@@ -148,7 +148,6 @@ def es_item_valido_o_excepcion(linea_texto):
     serie_encontrada = None
     
     for palabra in palabras:
-        # Acepta series alfanuméricas con guiones o barras diagonales (ej. 21365205/070)
         if (len(palabra) >= 6 and any(c.isdigit() for c in palabra)) or ('/' in palabra and any(c.isdigit() for c in palabra)):
             serie_encontrada = palabra
             break
@@ -268,39 +267,8 @@ def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario=CORREO_N
     except Exception:
         return False
 
-def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=CORREO_NOTIFICACION_PRINCIPAL):
-    webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
-    if not webhook_url:
-        return False
-
-    asunto = f"🚨 NOTIFICACIÓN DE ERRORES EN FICHAS ({ANIO_ACTUAL}): {tecnico}"
-    cuerpo = (
-        f"Reporte de Auditoría de Fichas - Año {ANIO_ACTUAL}:\n\n"
-        f"Se han encontrado incoherencias durante la revisión automática del paquete de fichas:\n\n"
-        f"• Técnico: {tecnico}\n"
-        f"• Año de Evaluación: {ANIO_ACTUAL}\n\n"
-        f"DETALLE DE ERRORES REGISTRADOS:\n"
-        f"{resumen_errores}\n\n"
-        f"Por favor revisa estos archivos para realizar la corrección en la base de datos."
-    )
-
-    payload = {
-        "destinatario": correo_notificacion,
-        "asunto": asunto,
-        "cuerpo": cuerpo,
-        "equipo": f"AUDITORÍA FICHAS {ANIO_ACTUAL}",
-        "tecnico": tecnico,
-        "estatus": "ERROR DE CAPTURA"
-    }
-
-    try:
-        response = requests.post(webhook_url, json=payload, timeout=10)
-        return response.status_code in [200, 202]
-    except Exception:
-        return False
-
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (FLEXIBLE Y BLINDADA)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (ESTRICTA AL CATÁLOGO)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -388,7 +356,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Detección flexible y tolerante a acentos/mayúsculas/minúsculas
+                    # Asignación estricta y limpia según tu lista oficial exacta
                     if not descripcion:
                         if any(k in texto_l_upper for k in ["CASCO", "VERTEX", "STRATO"]):
                             descripcion = "CASCO"
@@ -396,7 +364,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                         elif any(k in texto_l_upper for k in ["ARNÉS", "ARNES", "ATLAS", "AVAO", "VOLT"]):
                             descripcion = "ARNÉS"
                         elif any(k in texto_l_upper for k in ["GANCHO", "APERTURA", "AUSTIN"]):
-                            descripcion = "GANCHO"
+                            descripcion = "GANCHO DE GRAN APERTURA"
                         elif any(k in texto_l_upper for k in ["RETRACTIL", "CINTURON", "CINTURÓN"]):
                             descripcion = "CINTURÓN RETRÁCTIL"
                             marca = "PROTECTA"
@@ -412,7 +380,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             else:
                                 descripcion = "CINTA DE ANCLAJE"
                         elif any(k in texto_l_upper for k in ["GRILLON", "POSICIONADOR", "CATCH"]):
-                            descripcion = "POSICIONADOR / ESLINGA"
+                            descripcion = "POSICIONADOR / ESLINGA 3M"
                             marca = "PETZL" if "GRILLON" in texto_l_upper else "ROCK EMPIRE"
                         elif any(k in texto_l_upper for k in ["SKC", "SOLL", "SÖLL", "VI-GO", "ANTICAIDAS", "ANTICAÍDAS", "AVANTI"]):
                             descripcion = "ANTICAÍDAS"
@@ -422,8 +390,9 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                                 marca = "HONEYWELL"
                             else:
                                 marca = "AVANTI"
-                        else:
-                            descripcion = ""
+                        elif any(k in texto_l_upper for k in ["CROLL"]):
+                            descripcion = "BLOQUEADOR CROLL"
+                            marca = "PETZL"
 
                     items_master.append({
                         "raw_line": linea_str,
