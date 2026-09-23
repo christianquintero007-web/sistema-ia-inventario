@@ -302,7 +302,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y PRECISA)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y MULTI-SERIE)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -368,9 +368,15 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     modelo = "CLASE 0 / 1000V"
                     marca = "NOVAX"
                     descripcion = "GUANTE DIELÉCTRICO 1000V"
+                    candidatos_serie = [num_serie]
                 else:
-                    num_serie_candidato = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
-                    num_serie = re.sub(r'(?i)^(fix|s/n|serie)[:\s]*', '', num_serie_candidato)
+                    # Extraer TODOS los candidatos válidos de la línea para no perder elementos múltiples (ej. varias eslingas)
+                    candidatos_serie = [p for p in partes if (len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)) or (len(p) >= 8 and p.isdigit())]
+                    if not candidatos_serie:
+                        candidatos_serie = [next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), partes[-1])]
+
+                for cand in candidatos_serie:
+                    num_serie = re.sub(r'(?i)^(fix|s/n|serie)[:\s]*', '', cand)
                     
                     texto_l_upper = linea_str.upper()
 
@@ -386,7 +392,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Detección complementaria por palabras clave directas si no hizo match exacto por llave
+                    # Detección complementaria de respaldo si no hizo match exacto por llave
                     if not descripcion:
                         if "CASCO" in texto_l_upper or "VERTEX" in texto_l_upper or "STRATO" in texto_l_upper:
                             descripcion = "CASCO"
@@ -407,31 +413,30 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                         elif "GRILLON" in texto_l_upper or "POSICIONADOR" in texto_l_upper:
                             descripcion = "POSICIONADOR / ESLINGA"
                             marca = "PETZL"
+                        else:
+                            descripcion = ""
 
-                items_master.append({
-                    "raw_line": linea_str,
-                    "serie": num_serie,
-                    "modelo": modelo,
-                    "marca": marca
-                })
+                    items_master.append({
+                        "raw_line": linea_str,
+                        "serie": num_serie,
+                        "modelo": modelo,
+                        "marca": marca
+                    })
 
-                es_nuevo = "NUEVO" in linea_str.upper()
-                if es_nuevo:
-                    obs_formateada = f"(NUEVO) {tecnico_master}"
-                else:
-                    obs_formateada = tecnico_master
+                    es_nuevo = "NUEVO" in linea_str.upper()
+                    obs_formateada = f"(NUEVO) {tecnico_master}" if es_nuevo else tecnico_master
 
-                registros_inventario.append({
-                    "DEPARTAMENTO": departamento_auto,
-                    "DESCRIPCIÓN": descripcion,
-                    "MARCA": marca,
-                    "MODELO": modelo,
-                    "NÚMERO DE SERIE": num_serie,
-                    "FACTURA_OC": "",
-                    "FECHA_DE_ESTATUS": fecha_acuse,
-                    "OBSERVACIONES": obs_formateada,
-                    "ESTATUS": "OK"
-                })
+                    registros_inventario.append({
+                        "DEPARTAMENTO": departamento_auto,
+                        "DESCRIPCIÓN": descripcion,
+                        "MARCA": marca,
+                        "MODELO": modelo,
+                        "NÚMERO DE SERIE": num_serie,
+                        "FACTURA_OC": "",
+                        "FECHA_DE_ESTATUS": fecha_acuse,
+                        "OBSERVACIONES": obs_formateada,
+                        "ESTATUS": "OK"
+                    })
 
     reporte_correcto = []
     lista_errores = []
