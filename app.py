@@ -542,7 +542,7 @@ with tab_zip:
                             st.error(f"⚠️ No se pudo sincronizar automáticamente con Google Sheets. Detalle: {mensaje_gs}")
 
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df_inventario.to_excel(writer, index=False, sheet_name='INVENTARIO')
                 excel_data = output.getvalue()
 
