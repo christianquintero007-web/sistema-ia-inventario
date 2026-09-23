@@ -203,11 +203,11 @@ def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
     match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
     tecnico_master = match_tecnico_master.group(1).strip().upper() if match_tecnico_master else "TÉCNICO NO DETECTADO"
 
-    # 2. Extraer Fecha del Acuse EPI (ubica la fecha del formato/firma en la parte inferior o encabezado)
+    # 2. Extraer Fecha del Acuse EPI
     match_fechas = re.findall(r'\b([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\b', master_acuse_texto)
     fecha_acuse = match_fechas[-1] if match_fechas else date.today().strftime("%Y-%m-%d")
 
-    # 3. Construir items maestros y registros para la hoja de Inventario
+    # 3. Construir ítems maestros para la hoja de Inventario
     items_master = []
     registros_inventario = []
     lineas = master_acuse_texto.split('\n')
@@ -228,7 +228,7 @@ def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
                     "marca": marca
                 })
 
-                # Regla de formato para OBSERVACIONES y FECHA DE ESTATUS
+                # Formato de OBSERVACIONES y FECHA DE ESTATUS
                 es_nuevo = "NUEVO" in linea_str.upper()
                 obs_formateada = f"(NUEVO) {tecnico_master}" if es_nuevo else tecnico_master
 
@@ -560,7 +560,7 @@ with tab_ia:
             prompt_sistema = """
 REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
+- Queda strictly prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
@@ -637,43 +637,40 @@ with tab_zip:
         key="uploader_zip_acuses"
     )
 
+    # ⚡ PROCESAMIENTO INSTANTÁNEO EN CUANTO SE SUBE EL ARCHIVO ZIP
     if zip_cargado:
-        if st.button("🚀 Auditar Fichas y Registrar Acuse EPI"):
-            with st.spinner(f"Analizando fichas para el período {ANIO_ACTUAL}..."):
-                tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado, departamento_sel=dep_destino)
+        with st.spinner(f"⚡ Leyendo, auditando y sincronizando el Acuse EPI ({ANIO_ACTUAL}) en Google Sheets..."):
+            tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado, departamento_sel=dep_destino)
+            
+            st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
+            
+            if lista_errores:
+                st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
+                df_err = pd.DataFrame(lista_errores)
+                st.dataframe(df_err, use_container_width=True)
                 
-                st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
+                texto_resumen_mail = ""
+                for err in lista_errores:
+                    texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
                 
-                if lista_errores:
-                    st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
-                    
-                    df_err = pd.DataFrame(lista_errores)
-                    st.dataframe(df_err, use_container_width=True)
-                    
-                    texto_resumen_mail = ""
-                    for err in lista_errores:
-                        texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
-                    
-                    if correo_notificacion_mi_usuario:
-                        with st.spinner("Enviando aviso de errores a tu correo..."):
-                            envio_ok = enviar_alerta_errores_usuario(
-                                tecnico=tecnico_master,
-                                resumen_errores=texto_resumen_mail,
-                                correo_notificacion=correo_notificacion_mi_usuario
-                            )
-                            if envio_ok:
-                                st.warning(f"📧 Se envió una notificación de ajuste a tu correo (**{correo_notificacion_mi_usuario}**).")
-                            else:
-                                st.info("No se pudo enviar el correo automático (revisa la URL de Power Automate).")
-                else:
-                    st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas exitosamente! No se encontraron errores humanos.")
-                    
-                    # Sincronización completa a la hoja INVENTARIO de Google Sheets
-                    if not df_inventario.empty:
-                        sincronizar_o_actualizar_tecnico_sheets(df_inventario, nombre_pestaña="INVENTARIO")
-                        st.balloons()
-                        st.success(f"✅ Se registró el Acuse EPI completo del técnico **{tecnico_master}** en Google Sheets con sus fechas de estatus y formato de observaciones.")
-
+                if correo_notificacion_mi_usuario:
+                    envio_ok = enviar_alerta_errores_usuario(
+                        tecnico=tecnico_master,
+                        resumen_errores=texto_resumen_mail,
+                        correo_notificacion=correo_notificacion_mi_usuario
+                    )
+                    if envio_ok:
+                        st.warning(f"📧 Se envió una notificación de ajuste a tu correo (**{correo_notificacion_mi_usuario}**).")
+            else:
+                st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas exitosamente! No se encontraron errores humanos.")
+                
                 if not df_inventario.empty:
-                    st.subheader(f"📦 Registros Extraídos del Acuse EPI para Inventario ({ANIO_ACTUAL})")
-                    st.dataframe(df_inventario, use_container_width=True)
+                    sincronizar_o_actualizar_tecnico_sheets(df_inventario, nombre_pestaña="INVENTARIO")
+                    st.balloons()
+                    st.success(f"✅ Se registró el Acuse EPI completo de **{tecnico_master}** en la pestaña de Google Sheets.")
+
+            if not df_inventario.empty:
+                st.subheader(f"📦 Registros Sincronizados en Inventario ({ANIO_ACTUAL})")
+                st.dataframe(df_inventario, use_container_width=True)
+    else:
+        st.info("📌 **Estado:** Esperando archivo `.zip`. En cuanto selecciones o arrastres el archivo arriba, el sistema lo procesará y registrará automáticamente.")
