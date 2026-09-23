@@ -271,7 +271,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         match_marca = re.search(r'(?:marca):\s*([^\n]+)', texto_ficha, re.IGNORECASE)
 
         serie_ficha = match_serie.group(1).strip().upper() if match_serie else "DESCONOCIDO"
-        modelo_ficha = match_modelo.group(1).strip() if match_modelo else "DESCONOCIDO"
+        modelo_ficha = match_modelo.group(1).strip() if modelo_ficha else "DESCONOCIDO"
         tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
