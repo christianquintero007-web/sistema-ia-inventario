@@ -1,22 +1,28 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
+from datetime import date
 
-# Configuración inicial de la página
+# Configuración inicial
 st.set_page_config(
     page_title="Sistema de Inventario e Inspecciones EPP", 
     page_icon="🛡️", 
     layout="wide"
 )
 
+# LISTA EXACTA DE TUS DEPARTAMENTOS / SECCIONES
+DEPARTAMENTOS = [
+    "PERSONAL 103", 
+    "PERSONAL 105", 
+    "PERSONAL 118", 
+    "REVISIÓN", 
+    "BAJAS"
+]
+
 # ---------------------------------------------------------
-# FUNCIÓN ROBUTA DE CARGA Y NORMALIZACIÓN DE DATOS
+# CARGA Y LIMPIEZA DE DATOS DESDE GOOGLE SHEETS
 # ---------------------------------------------------------
 def cargar_hoja_csv(pestaña):
-    """
-    Lee los datos desde Google Sheets vía CSV y normaliza los encabezados 
-    a minúsculas sin espacios para ser inmune a diferencias de MAYÚSCULAS/minúsculas.
-    """
     try:
         url_base = st.secrets["connections"]["gsheets"]["spreadsheet"]
         sheet_id = url_base.split("/d/")[1].split("/")[0]
@@ -25,25 +31,25 @@ def cargar_hoja_csv(pestaña):
         df = pd.read_csv(url_csv)
         
         if not df.empty:
-            # Normalizar nombres de columnas (quita espacios extra y convierte a minúsculas)
+            # Normalizar nombres de columnas (minúsculas y sin espacios extra)
             df.columns = [str(col).strip().lower() for col in df.columns]
+            # Eliminar columnas fantasma / unnamed
+            df = df.loc[:, ~df.columns.str.startswith('unnamed')]
             
         return df.dropna(how="all")
     except Exception as e:
-        st.error(f"Error al conectar con la pestaña '{pestaña}': {e}")
         return pd.DataFrame()
 
 # ---------------------------------------------------------
-# INTERFAZ PRINCIPAL Y NAVEGACIÓN
+# INTERFAZ PRINCIPAL
 # ---------------------------------------------------------
-st.title("🛡️ Sistema de Gestión de EPP e Inspecciones")
+st.title("🛡️ Gestión de Inventario e Inspecciones de EPP")
 
-tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_ia = st.tabs([
+tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia = st.tabs([
     "📊 Dashboard", 
     "➕ Registrar Equipo", 
     "📋 Inspección Pre-operacional", 
-    "🗑️ Eliminar / Gestionar", 
-    "📜 Historial", 
+    "📜 Historial de Inspecciones", 
     "🤖 Asistente IA"
 ])
 
@@ -51,140 +57,138 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_gestionar, tab_historial, tab_
 # 1. DASHBOARD
 # ---------------------------------------------------------
 with tab_dashboard:
-    st.header("📊 Estado General del Inventario EPP")
-    df_inv = cargar_hoja_csv("Inventario")
+    st.header("📊 Estado General por Departamento")
+    df_inv = cargar_hoja_csv("INVENTARIO")
     
-    total_equipos = len(df_inv) if not df_inv.empty else 0
+    dep_filtro = st.selectbox("Filtrar Dashboard por Departamento:", ["TODOS"] + DEPARTAMENTOS)
     
-    # Búsqueda flexible de columna 'estado'
-    if not df_inv.empty and "estado" in df_inv.columns:
-        conformes = len(df_inv[df_inv["estado"].astype(str).str.lower() == "conforme"])
-        no_conformes = len(df_inv[df_inv["estado"].astype(str).str.lower() == "no conforme"])
-    else:
-        conformes = 0
-        no_conformes = 0
-        
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total de Equipos", total_equipos)
-    c2.metric("Conformes ✅", conformes)
-    c3.metric("No Conformes ❌", no_conformes)
-    
-    st.divider()
-    st.subheader("Tabla de Inventario Sincronizada")
     if not df_inv.empty:
-        st.dataframe(df_inv, use_container_width=True)
+        if dep_filtro != "TODOS" and "departamento" in df_inv.columns:
+            df_view = df_inv[df_inv["departamento"].astype(str).str.upper() == dep_filtro.upper()]
+        else:
+            df_view = df_inv
+            
+        total_equipos = len(df_view)
+        conformes = len(df_view[df_view["estado"].astype(str).str.lower() == "ok"]) if "estado" in df_view.columns else 0
+        no_conformes = len(df_view[df_view["estado"].astype(str).str.lower() != "ok"]) if "estado" in df_view.columns else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Equipos", total_equipos)
+        c2.metric("Conformes ✅", conformes)
+        c3.metric("No Conformes / Detalle ❌", no_conformes)
+        
+        st.divider()
+        st.dataframe(df_view, use_container_width=True)
     else:
         st.info("La tabla de Inventario está vacía o cargando datos.")
 
 # ---------------------------------------------------------
-# 2. REGISTRAR NUEVO EQUIPO
+# 2. REGISTRAR EQUIPO
 # ---------------------------------------------------------
 with tab_registrar:
-    st.header("➕ Registrar Nuevo Equipo de Protección")
+    st.header("➕ Registrar Nuevo Equipo")
     
     with st.form("form_registro", clear_on_submit=True):
-        codigo = st.text_input("Código / N° de Serie (ej. ARN-2026-01)").strip().upper()
-        modelo = st.selectbox("Tipo de EPP", [
-            "Arnés de Seguridad", 
-            "Línea de Vida / Lanyard", 
-            "Casco de Protección", 
-            "Mosquetón / Conector", 
-            "Cuerda de Posicionamiento", 
-            "Otro"
-        ])
-        marca = st.text_input("Marca / Modelo (ej. Petzl, Rock Empire)").strip()
-        fecha_fab = st.date_input("Fecha de Fabricación / Inspección")
-        
-        btn_guardar = st.form_submit_button("💾 Guardar Registro")
+        col1, col2 = st.columns(2)
+        with col1:
+            codigo = st.text_input("Código / N° de Serie (ej. 24CUA900009)").strip().upper()
+            departamento = st.selectbox("Departamento / Área Asignada", DEPARTAMENTOS)
+            modelo = st.text_input("Modelo (ej. Atlas Lock Al Belt)").strip()
+        with col2:
+            marca = st.text_input("Marca (ej. Rock Empire, Petzl)").strip()
+            fecha_fab = st.date_input("Fecha de Fabricación / Ingreso")
+            estado_ini = st.selectbox("Estado Inicial", ["ok", "no conforme"])
+            
+        obs = st.text_area("Observaciones Iniciales", value="nuevo")
+        btn_guardar = st.form_submit_button("💾 Registrar Equipo")
         
         if btn_guardar:
             if codigo and marca:
-                st.success(f"✅ Equipo **{codigo}** ({tipo}) registrado correctamente.")
-                st.info("💡 Si capturas datos directamente en Google Sheets o Excel, se sincronizarán en la siguiente recarga.")
+                st.success(f"✅ Equipo **{codigo}** registrado para **{departamento}**.")
+                st.info("💡 Recuerda que puedes agregarlo directamente en Google Sheets o sincronizarlo en Excel.")
             else:
-                st.warning("⚠️ Por favor completa los campos requeridos (Código y Marca).")
+                st.warning("⚠️ Completa al menos el Código y la Marca.")
 
 # ---------------------------------------------------------
 # 3. INSPECCIÓN PRE-OPERACIONAL
 # ---------------------------------------------------------
 with tab_inspeccion:
-    st.header("📋 Inspección Pre-operacional de EPP")
-    df_inv = cargar_hoja_csv("Inventario")
+    st.header("📋 Inspección Pre-operacional en Campo")
+    df_inv = cargar_hoja_csv("INVENTARIO")
     
     if df_inv.empty or "codigo" not in df_inv.columns:
-        st.warning("⚠️ No hay equipos registrados en el inventario o la columna 'codigo' no fue detectada.")
+        st.warning("⚠️ No hay equipos registrados en el inventario.")
     else:
-        lista_codigos = df_inv["codigo"].dropna().astype(str).unique().tolist()
-        codigo_sel = st.selectbox("Selecciona el Código del Equipo", lista_codigos)
+        dep_insp = st.selectbox("Selecciona Departamento / Área:", DEPARTAMENTOS, key="dep_insp")
         
-        st.subheader("Criterios Normativos de Verificación")
-        c1 = st.checkbox("Cintas textiles / Cuerdas: Sin desgastes, cortes, deshilachados o quemaduras.")
-        c2 = st.checkbox("Costuras de seguridad: Íntimas, continuas y sin hilos rotos.")
-        c3 = st.checkbox("Partes metálicas / Hebillas: Sin deformación, fisuras, corrosión ni bordes filosos.")
-        
-        obs = st.text_area("Observaciones Técnicas / Hallazgos", placeholder="Escribe aquí cualquier hallazgo relevante...")
-        
-        if st.button("📝 Registrar Inspección"):
-            resultado = "Conforme" if (c1 and c2 and c3) else "No Conforme"
+        # Filtrar equipos por el departamento seleccionado
+        if "departamento" in df_inv.columns:
+            df_dep = df_inv[df_inv["departamento"].astype(str).str.upper() == dep_insp.upper()]
+        else:
+            df_dep = df_inv
             
-            if resultado == "Conforme":
-                st.success(f"✅ Inspección para **{codigo_sel}**: **CONFORME**")
-            else:
-                st.error(f"❌ Inspección para **{codigo_sel}**: **NO CONFORME** (Requiere retiro/revisión)")
-
-# ---------------------------------------------------------
-# 4. ELIMINAR / GESTIONAR
-# ---------------------------------------------------------
-with tab_gestionar:
-    st.header("🗑️ Gestor de Equipos")
-    df_inv = cargar_hoja_csv("Inventario")
-    
-    if df_inv.empty or "codigo" not in df_inv.columns:
-        st.info("No hay equipos disponibles para gestionar.")
-    else:
-        lista_codigos = df_inv["codigo"].dropna().astype(str).unique().tolist()
-        codigo_a_eliminar = st.selectbox("Selecciona el Código del Equipo a Gestionar", lista_codigos)
+        codigos_disponibles = df_dep["codigo"].dropna().astype(str).unique().tolist()
         
-        if st.button("❌ Marcar para Baja / Eliminar"):
-            st.warning(f"Equipo **{codigo_a_eliminar}** seleccionado para actualización/baja.")
+        if not codigos_disponibles:
+            st.info(f"No hay equipos registrados bajo el área **{dep_insp}**.")
+        else:
+            codigo_sel = st.selectbox("Selecciona el Código del Equipo:", codigos_disponibles)
+            
+            st.subheader("Puntos de Verificación Normativa")
+            c1 = st.checkbox("Cintas / Cuerdas: Sin cortes, desgaste, quemaduras ni hilos sueltos.")
+            c2 = st.checkbox("Costuras de Seguridad: Continuas e íntegras.")
+            c3 = st.checkbox("Partes Metálicas / Hebillas: Sin deformaciones, fisuras ni corrosión.")
+            
+            obs_insp = st.text_area("Observaciones / Hallazgos de la Inspección")
+            
+            if st.button("📝 Guardar Inspección"):
+                resultado = "ok" if (c1 and c2 and c3) else "no conforme"
+                fecha_hoy = date.today().strftime("%Y-%m-%d")
+                
+                if resultado == "ok":
+                    st.success(f"✅ Inspección registrada para **{codigo_sel}** ({dep_insp}): **OK**")
+                else:
+                    st.error(f"❌ Inspección para **{codigo_sel}** ({dep_insp}): **NO CONFORME**")
 
 # ---------------------------------------------------------
-# 5. HISTORIAL DE INSPECCIONES
+# 4. HISTORIAL DE INSPECCIONES
 # ---------------------------------------------------------
 with tab_historial:
     st.header("📜 Historial de Inspecciones")
-    df_insp = cargar_hoja_csv("Inspecciones")
+    df_insp = cargar_hoja_csv("INSPECCIONES")
     
     if not df_insp.empty:
-        st.dataframe(df_insp, use_container_width=True)
+        dep_hist = st.selectbox("Filtrar por Departamento:", ["TODOS"] + DEPARTAMENTOS, key="dep_hist")
+        if dep_hist != "TODOS" and "departamento" in df_insp.columns:
+            df_insp_view = df_insp[df_insp["departamento"].astype(str).str.upper() == dep_hist.upper()]
+        else:
+            df_insp_view = df_insp
+            
+        st.dataframe(df_insp_view, use_container_width=True)
     else:
-        st.info("Aún no hay registros en la pestaña de Inspecciones.")
+        st.info("Aún no existen registros en la pestaña de Inspecciones.")
 
 # ---------------------------------------------------------
-# 6. ASISTENTE TÉCNICO IA (GEMINI)
+# 5. ASISTENTE IA
 # ---------------------------------------------------------
 with tab_ia:
-    st.header("🤖 Asistente Técnico de Seguridad e Inspección EPP")
-    st.caption("Consulta normas (NOM-017-STPS, OSHA, EN), criterios de rechazo de equipos o especificaciones técnicas.")
+    st.header("🤖 Asistente Técnico de Seguridad e Inspección")
+    st.caption("Consulta criterios de rechazo de equipos, normas NOM-017-STPS, OSHA, etc.")
     
-    pregunta = st.text_input("Haz tu consulta técnica:")
+    pregunta = st.text_input("Escribe tu consulta técnica:")
     
-    if st.button("🔍 Consultar Asistente IA"):
+    if st.button("🔍 Consultar IA"):
         if pregunta:
             try:
                 if "GEMINI_API_KEY" not in st.secrets:
-                    st.error("❌ No se encontró la clave 'GEMINI_API_KEY' en los Secrets de Streamlit.")
+                    st.error("❌ Falta la clave 'GEMINI_API_KEY' en los Secrets de Streamlit.")
                 else:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
-                    with st.spinner("Analizando norma y criterio técnico..."):
-                        prompt_sistema = f"""
-                        Eres un Ingeniero especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI para trabajos en altura.
-                        Responde de forma clara, técnica, estructurada y concisa a la siguiente consulta:
-                        {pregunta}
-                        """
-                        response = model.generate_content(prompt_sistema)
+                    with st.spinner("Analizando criterio técnico..."):
+                        prompt = f"Eres un Ingeniero especialista en Seguridad Industrial y EPP de altura. Responde técnicamente: {pregunta}"
+                        response = model.generate_content(prompt)
                         st.markdown(response.text)
             except Exception as e:
-                st.error(f"❌ Error al consultar el modelo de IA: {e}")
+                st.error(f"Error: {e}")
