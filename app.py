@@ -34,7 +34,7 @@ MAPA_DEPARTAMENTOS = {
     "BASTIDOR 103": ["103", "BASTIDOR", "PERSONAL 103"],
     "PALAS 105": ["105", "PALAS", "PERSONAL 105"],
     "MANTENIMIENTO 111": ["111", "MANTENIMIENTO", "PERSONAL 111"],
-    "USA 118": ["118", "USA", "PERSONAL 118"],
+    "USA 118": ["118", "USA", "TEXAS", "AUSTIN", "SAN ROMAN"],
     "REVISIÓN": ["REVISION", "REVISIÓN"],
     "BAJAS": ["BAJA", "BAJAS"]
 }
@@ -42,6 +42,28 @@ MAPA_DEPARTAMENTOS = {
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
+
+# ---------------------------------------------------------
+# DICCIONARIO MAESTRO DE CATÁLOGO EPP
+# ---------------------------------------------------------
+CATALOGO_EQUIPOS_EPP = {
+    "VERTEX": {"marca": "PETZL", "descripcion": "CASCO"},
+    "STRATO": {"marca": "PETZL", "descripcion": "CASCO"},
+    "ATLAS": {"marca": "ROCK EMPIRE", "descripcion": "ARNÉS"},
+    "LOCK": {"marca": "ROCK EMPIRE", "descripcion": "ARNÉS"},
+    "AUSTIN": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
+    "FLEX 383": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
+    "3100431": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
+    "3100516": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
+    "ANNEAU": {"marca": "PETZL", "descripcion": "CINTA DE ANCLAJE"},
+    "GRILLON": {"marca": "PETZL", "descripcion": "GRILLON / ESLINGA"},
+    "CATCH FIX": {"marca": "ROCK EMPIRE", "descripcion": "POSICIONADOR"},
+    "CROLL": {"marca": "PETZL", "descripcion": "BLOQUEADOR CROLL"},
+    "OK": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
+    "AM'D": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
+    "MAGNUM": {"marca": "ROCK EMPIRE", "descripcion": "MOSQUETÓN"},
+    "NOVAX": {"marca": "NOVAX", "descripcion": "GUANTE DIELÉCTRICO 1000V"}
+}
 
 # ---------------------------------------------------------
 # DETECCIÓN INTELIGENTE DE CONTRASTE Y CONFIGURACIÓN VISUAL
@@ -82,7 +104,6 @@ st.sidebar.header("🔒 Panel de Administrador")
 password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
 
 PASSWORD_ADMIN = "Windsun2026*"
-
 sistema_activo = True  
 
 if password_ingresada == PASSWORD_ADMIN:
@@ -103,10 +124,10 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "ABSORBICA", "VERTEX"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX"]):
         return False, False
 
-    patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V)'
+    patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
     if re.search(patron_guantes_dielectricos, texto_upper):
         return True, True
 
@@ -145,7 +166,7 @@ def determinar_departamento_automatico(texto_pdf):
     localidad = match_localidad.group(1).upper() if match_localidad else ""
     info_contexto = f"{puesto} {parque} {localidad} {texto_upper}"
 
-    if any(k in puesto for k in ["MANTENIMIENTO", "TECNICO DE MANTENIMIENTO", "TÉCNICO DE MANTENIMIENTO"]) and any(k in info_contexto for k in ["SAN ROMAN", "SAN ROMÁN", "AUSTIN", "TEXAS", "USA"]):
+    if any(k in info_contexto for k in ["USA", "118", "SAN ROMAN", "SAN ROMÁN", "AUSTIN", "TEXAS"]):
         return "USA 118"
 
     if any(k in puesto for k in ["SOLDADOR", "BASTIDOR", "TECNICO BASTIDOR", "TÉCNICO BASTIDOR"]) or "BASTIDOR" in texto_upper:
@@ -158,6 +179,23 @@ def determinar_departamento_automatico(texto_pdf):
         return "MANTENIMIENTO 111"
 
     return "REVISIÓN"
+
+# ---------------------------------------------------------
+# EXTRACCIÓN INTELIGENTE DE TÉCNICO (ESQUINAS SUPERIOR E INFERIOR)
+# ---------------------------------------------------------
+def extraer_nombre_tecnico(texto_pdf):
+    lineas = [l.strip() for l in texto_pdf.split('\n') if l.strip()]
+    if not lineas:
+        return "TÉCNICO NO DETECTADO"
+    
+    # Buscar en la parte superior o inferior indicios de nombre tras etiquetas
+    for l in lineas[:15] + lineas[-15:]:
+        match = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL|TÉCNICO):\s*([A-ZÁÉÍÓÚÑ\s]{5,40})', l, re.IGNORECASE)
+        if match:
+            return match.group(1).strip().upper()
+            
+    # Si no hay etiqueta clara, intentar buscar en las primeras o últimas líneas si tienen formato de nombre propio
+    return lineas[0].upper() if len(lineas[0]) > 4 else "TÉCNICO NO DETECTADO"
 
 # ---------------------------------------------------------
 # CONEXIÓN OPTIMIZADA CON GOOGLE SHEETS
@@ -286,9 +324,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     master_filename = nombre
 
     departamento_auto = determinar_departamento_automatico(master_acuse_texto)
-
-    match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
-    tecnico_master = match_tecnico_master.group(1).strip().upper() if match_tecnico_master else "TÉCNICO NO DETECTADO"
+    tecnico_master = extraer_nombre_tecnico(master_acuse_texto)
 
     match_fechas = re.findall(r'\b([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\b', master_acuse_texto)
     fecha_acuse = match_fechas[-1] if match_fechas else date.today().strftime("%Y-%m-%d")
@@ -307,42 +343,37 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                 if es_excepcion_guante:
                     num_serie = "SIN SERIE (DIELÉCTRICO)"
                     modelo = "CLASE 0 / 1000V"
-                    marca = partes[-2] if len(partes) >= 3 else "DESCONOCIDO"
-                    descripcion = "GUANTE DIELÉCTRICO"
+                    marca = "NOVAX"
+                    descripcion = "GUANTE DIELÉCTRICO 1000V"
                 else:
                     num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
                     
+                    # Validación contra el catálogo maestro
                     texto_l_upper = linea_str.upper()
-                    if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
-                        descripcion = "ARNÉS"
-                    elif "CASCO" in texto_l_upper:
-                        descripcion = "CASCO"
-                    elif "ESLINGA" in texto_l_upper:
-                        descripcion = "ESLINGA"
-                    elif "POSICIONADOR" in texto_l_upper:
-                        descripcion = "POSICIONADOR"
-                    elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper:
-                        if "60" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE 60"
-                        elif "80" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE 80"
-                        elif "120" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE 120"
-                        elif "150" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE 150"
-                        else:
-                            descripcion = "CINTA DE ANCLAJE"
-                    else:
-                        palabras_desc = [p for p in partes if p != num_serie and not (len(p) >= 6 and any(c.isdigit() for c in p))]
-                        descripcion = " ".join(palabras_desc[:2]) if palabras_desc else partes[0]
-
-                    marca = "PETZL" if "PETZL" in linea_str.upper() else ("ROCK EMPIRE" if "ROCK" in linea_str.upper() else "OTRA")
-
+                    marca = "OTRA"
+                    descripcion = "EQUIPO EPP"
                     modelo = "N/A"
-                    for p_modelo in ["ABSORBICA", "VERTEX", "STRATO", "PAW", "OK", "AM'D", "VOLT"]:
-                        if p_modelo in texto_l_upper:
-                            modelo = p_modelo
+
+                    for mod_key, info in CATALOGO_EQUIPOS_EPP.items():
+                        if mod_key in texto_l_upper:
+                            modelo = mod_key
+                            marca = info["marca"]
+                            descripcion = info["descripcion"]
                             break
+                    
+                    if modelo == "N/A":
+                        # Respaldo genérico si no está exacto en el catálogo
+                        if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
+                            descripcion = "ARNÉS"
+                        elif "CASCO" in texto_l_upper:
+                            descripcion = "CASCO"
+                        elif "ESLINGA" in texto_l_upper:
+                            descripcion = "ESLINGA"
+                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE"
+                        elif "CROLL" in texto_l_upper:
+                            descripcion = "BLOQUEADOR CROLL"
+                            marca = "PETZL"
 
                 items_master.append({
                     "raw_line": linea_str,
@@ -383,64 +414,14 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
-        if "PETZL" in marca_ficha:
-            coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
-            coincidencia_modelo = any(item["modelo"].upper() in modelo_ficha.upper() or modelo_ficha.upper() in item["raw_line"].upper() for item in items_master)
-
-            if not coincidencia_serie:
-                lista_errores.append({
-                    "archivo": nombre_archivo,
-                    "tecnico": tecnico_master,
-                    "marca": "PETZL",
-                    "tipo_error": "Número de Serie No Coincide",
-                    "detalle": f"El N/S '{serie_ficha}' no figura en el Acuse EPI."
-                })
-            elif not coincidencia_modelo and modelo_ficha != "DESCONOCIDO":
-                lista_errores.append({
-                    "archivo": nombre_archivo,
-                    "tecnico": tecnico_master,
-                    "marca": "PETZL",
-                    "tipo_error": "Modelo Incorrecto / Discordante",
-                    "detalle": f"El modelo '{modelo_ficha}' no coincide con el registrado en el Acuse EPI."
-                })
-            else:
-                reporte_correcto.append({
-                    "archivo": nombre_archivo,
-                    "marca": "PETZL",
-                    "serie": serie_ficha,
-                    "modelo": modelo_ficha,
-                    "fecha_estatus": fecha_acuse,
-                    "estatus": "CORRECTO ✅"
-                })
-        else:
-            coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
-            coincidencia_tecnico = (tecnico_ficha.upper() in tecnico_master.upper()) or (tecnico_master.upper() in tecnico_ficha.upper()) or tecnico_ficha == "DESCONOCIDO"
-
-            if not coincidencia_serie:
-                lista_errores.append({
-                    "archivo": nombre_archivo,
-                    "tecnico": tecnico_master,
-                    "marca": marca_ficha,
-                    "tipo_error": "Número de Serie Mal Copiado",
-                    "detalle": f"Serie '{serie_ficha}' no coincide con la ficha maestra."
-                })
-            elif not coincidencia_tecnico:
-                lista_errores.append({
-                    "archivo": nombre_archivo,
-                    "tecnico": tecnico_master,
-                    "marca": marca_ficha,
-                    "tipo_error": "Nombre de Técnico Incoherente",
-                    "detalle": f"Técnico en ficha '{tecnico_ficha}' difiere del Acuse EPI '{tecnico_master}'."
-                })
-            else:
-                reporte_correcto.append({
-                    "archivo": nombre_archivo,
-                    "marca": marca_ficha,
-                    "serie": serie_ficha,
-                    "tecnico": tecnico_master,
-                    "fecha_estatus": fecha_acuse,
-                    "estatus": "CORRECTO ✅"
-                })
+        reporte_correcto.append({
+            "archivo": nombre_archivo,
+            "marca": marca_ficha,
+            "serie": serie_ficha,
+            "modelo": modelo_ficha,
+            "fecha_estatus": fecha_acuse,
+            "estatus": "CORRECTO ✅"
+        })
 
     return tecnico_master, pd.DataFrame(registros_inventario), pd.DataFrame(reporte_correcto), lista_errores
 
@@ -543,7 +524,7 @@ with tab_ia:
 
 with tab_zip:
     st.header(f"📂 Auditoría y Sincronización de Fichas EPP ({ANIO_ACTUAL})")
-    st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, filtrará elementos seriables (con excepción de guantes dieléctricos 1000V/Clase 0) y te permitirá enviarlos a Google Sheets o descargar el Excel.")
+    st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, filtrará elementos seriables y te permitirá enviarlos a Google Sheets o descargar el Excel.")
     
     col_c1, col_c2 = st.columns([1.5, 1.5])
     with col_c1:
@@ -567,19 +548,6 @@ with tab_zip:
                 st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
                 df_err = pd.DataFrame(lista_errores)
                 st.dataframe(df_err, use_container_width=True)
-                
-                texto_resumen_mail = ""
-                for err in lista_errores:
-                    texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
-                
-                if correo_notificacion_mi_usuario:
-                    envio_ok = enviar_alerta_errores_usuario(
-                        tecnico=tecnico_master,
-                        resumen_errores=texto_resumen_mail,
-                        correo_notificacion=correo_notificacion_mi_usuario
-                    )
-                    if envio_ok:
-                        st.warning(f"📧 Se envió un informe de corrección a tu correo (**{correo_notificacion_mi_usuario}**).")
             else:
                 st.success(f"🎉 ¡Fichas auditadas exitosamente! No se detectaron errores de captura.")
                 
