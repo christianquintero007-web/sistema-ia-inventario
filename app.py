@@ -42,9 +42,6 @@ MAPA_DEPARTAMENTOS = {
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 
-# URL DE GOOGLE APPS SCRIPT
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
-
 # ---------------------------------------------------------
 # FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIÓN DE GUANTES 1000V / CLASE 0
 # ---------------------------------------------------------
@@ -93,36 +90,6 @@ def determinar_departamento_automatico(texto_pdf):
 # ---------------------------------------------------------
 # ALERTAS VÍA POWER AUTOMATE
 # ---------------------------------------------------------
-def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario=CORREO_NOTIFICACION_PRINCIPAL, detalles_adicionales=""):
-    webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
-    if not webhook_url:
-        return False
-
-    asunto = f"🚨 ALERTA EPP: {equipo} - {estatus}"
-    cuerpo = (
-        f"Se ha registrado un reporte de inspección no conforme:\n\n"
-        f"• Técnico / Inspector: {tecnico}\n"
-        f"• Equipo / Elemento: {equipo}\n"
-        f"• Estado: {estatus}\n"
-        f"• Observaciones / Hallazgos: {detalles_adicionales if detalles_adicionales else 'Sin observaciones adicionales'}\n\n"
-        f"Mensaje generado automáticamente desde la App de Inspecciones EPP."
-    )
-
-    payload = {
-        "destinatario": destinatario,
-        "asunto": asunto,
-        "cuerpo": cuerpo,
-        "equipo": equipo,
-        "tecnico": tecnico,
-        "estatus": estatus
-    }
-
-    try:
-        response = requests.post(webhook_url, json=payload, timeout=10)
-        return response.status_code in [200, 202]
-    except Exception:
-        return False
-
 def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=CORREO_NOTIFICACION_PRINCIPAL):
     webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
     if not webhook_url:
@@ -152,28 +119,6 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         response = requests.post(webhook_url, json=payload, timeout=10)
         return response.status_code in [200, 202]
     except Exception:
-        return False
-
-# ---------------------------------------------------------
-# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CORREGIDO Y CON DEBUG)
-# ---------------------------------------------------------
-def enviar_datos_a_apps_script(df_nuevos):
-    try:
-        df_limpio = df_nuevos.fillna("").astype(str)
-        registros = df_limpio.to_dict(orient="records")
-        
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(APPS_SCRIPT_URL, json=registros, headers=headers, timeout=30)
-        
-        # Muestra en pantalla el resultado exacto de la petición HTTP
-        st.info(f"🔍 Respuesta exacta de Google Apps Script: [Código {response.status_code}] `{response.text}`")
-        
-        if response.status_code == 200 and ("exito" in response.text.lower() or "success" in response.text.lower()):
-            return True
-        else:
-            return False
-    except Exception as e:
-        st.error(f"❌ Error de conexión con Apps Script: {e}")
         return False
 
 # ---------------------------------------------------------
@@ -366,77 +311,67 @@ with tab_historial:
 with tab_ia:
     st.header("🤖 Asistente Técnico en Seguridad Industrial y EPP")
 
-# 6. PESTAÑA UNIFICADA: MODO AUTOMÁTICO vs MODO MANUAL
+# 6. PESTAÑA DE AUDITORÍA Y DESCARGA DIRECTA
 with tab_zip:
-    st.header(f"📂 Gestión y Sincronización de Fichas EPP ({ANIO_ACTUAL})")
+    st.header(f"📂 Auditoría y Exportación de Fichas EPP ({ANIO_ACTUAL})")
+    st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, clasificará el departamento, filtrará los elementos seriables (con excepción de guantes dieléctricos 1000V/Clase 0) y te generará un archivo Excel listo para descargar.")
     
-    modo_trabajo = st.radio(
-        "Selecciona la modalidad de operación:",
-        [
-            "🤖 Modo Automático (Sincronización Masiva)",
-            "📂 Modo Manual (Subir y Auditar Archivo .ZIP)"
-        ],
-        index=1
+    col_c1, col_c2 = st.columns([1.5, 1.5])
+    with col_c1:
+        correo_notificacion_mi_usuario = st.text_input("Tu correo (notificaciones de error):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
+    with col_c2:
+        correo_companera = st.text_input("Correo de tu compañera:", value=CORREO_COMPANERA_OPERACIONES).strip()
+
+    zip_cargado = st.file_uploader(
+        "Sube el archivo ZIP con las fichas del técnico:", 
+        type=["zip"],
+        key="uploader_zip_descarga"
     )
-    
-    st.divider()
 
-    if "Modo Automático" in modo_trabajo:
-        st.subheader("🤖 Sincronización Automática")
-        st.caption(f"Procesa y valida los registros del periodo **{ANIO_ACTUAL}**.")
-        if st.button("🚀 Ejecutar Sincronización"):
-            st.success(f"✅ Sincronización masiva completada para el año {ANIO_ACTUAL}.")
-            st.balloons()
-
-    else:
-        st.subheader("📂 Auditoría y Transcriptor por Archivo .ZIP")
-        st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, clasificará el departamento, filtrará los elementos seriables (con guantes dieléctricos 1000V/Clase 0) y actualizará tu Google Sheets.")
-        
-        col_c1, col_c2 = st.columns([1.5, 1.5])
-        with col_c1:
-            correo_notificacion_mi_usuario = st.text_input("Tu correo (notificaciones de error):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
-        with col_c2:
-            correo_companera = st.text_input("Correo de tu compañera:", value=CORREO_COMPANERA_OPERACIONES).strip()
-
-        zip_cargado = st.file_uploader(
-            "Sube el archivo ZIP con las fichas del técnico:", 
-            type=["zip"],
-            key="uploader_zip_acuses_dual"
-        )
-
-        if zip_cargado:
-            with st.spinner("⚡ Leyendo PDF, detectando departamento y enviando registros a Google Sheets..."):
-                tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
+    if zip_cargado:
+        with st.spinner("⚡ Leyendo PDF, detectando departamento y generando archivo..."):
+            tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
+            
+            st.subheader(f"📋 Resumen de Auditoría - Técnico: **{tecnico_master}**")
+            
+            if lista_errores:
+                st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
+                df_err = pd.DataFrame(lista_errores)
+                st.dataframe(df_err, use_container_width=True)
                 
-                st.subheader(f"📋 Resumen de Auditoría - Técnico: **{tecnico_master}**")
+                texto_resumen_mail = ""
+                for err in lista_errores:
+                    texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
                 
-                if lista_errores:
-                    st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
-                    df_err = pd.DataFrame(lista_errores)
-                    st.dataframe(df_err, use_container_width=True)
-                    
-                    texto_resumen_mail = ""
-                    for err in lista_errores:
-                        texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
-                    
-                    if correo_notificacion_mi_usuario:
-                        envio_ok = enviar_alerta_errores_usuario(
-                            tecnico=tecnico_master,
-                            resumen_errores=texto_resumen_mail,
-                            correo_notificacion=correo_notificacion_mi_usuario
-                        )
-                        if envio_ok:
-                            st.warning(f"📧 Se envió un informe de corrección a tu correo (**{correo_notificacion_mi_usuario}**).")
-                else:
-                    st.success(f"🎉 ¡Fichas auditadas exitosamente! No se detectaron errores de captura.")
-                    
-                if not df_inventario.empty:
-                    sincronizado = enviar_datos_a_apps_script(df_inventario)
-                    if sincronizado:
-                        st.balloons()
-                        st.success(f"✅ Se insertaron **{len(df_inventario)}** filas correctamente en la pestaña **INVENTARIO** de Google Sheets para **{tecnico_master}**.")
-                    else:
-                        st.error("⚠️ Hubo un problema al enviar los datos a Google Sheets mediante Apps Script.")
+                if correo_notificacion_mi_usuario:
+                    envio_ok = enviar_alerta_errores_usuario(
+                        tecnico=tecnico_master,
+                        resumen_errores=texto_resumen_mail,
+                        correo_notificacion=correo_notificacion_mi_usuario
+                    )
+                    if envio_ok:
+                        st.warning(f"📧 Se envió un informe de corrección a tu correo (**{correo_notificacion_mi_usuario}**).")
+            else:
+                st.success(f"🎉 ¡Fichas auditadas exitosamente! No se detectaron errores de captura.")
+                
+            if not df_inventario.empty:
+                st.success(f"✅ Se procesaron **{len(df_inventario)}** filas correctamente para **{tecnico_master}**.")
+                
+                # CREAR ARCHIVO EXCEL EN MEMORIA PARA DESCARGA
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df_inventario.to_excel(writer, index=False, sheet_name='INVENTARIO')
+                excel_data = output.getvalue()
 
-                    st.subheader("📦 Registros Seriables Extraídos (Añadidos al Inventario)")
-                    st.dataframe(df_inventario, use_container_width=True)
+                # BOTÓN DE DESCARGA DIRECTA
+                st.download_button(
+                    label="📥 Descargar Inventario Formateado para Excel (.xlsx)",
+                    data=excel_data,
+                    file_name=f"Inventario_{tecnico_master.replace(' ', '_')}_{date.today()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+                st.subheader("📦 Registros Seriables Extraídos (Vista Previa)")
+                st.dataframe(df_inventario, use_container_width=True)
+            else:
+                st.warning("⚠️ No se encontraron elementos seriables válidos en el archivo.")
