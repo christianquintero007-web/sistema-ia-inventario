@@ -181,20 +181,18 @@ def determinar_departamento_automatico(texto_pdf):
     return "REVISIÓN"
 
 # ---------------------------------------------------------
-# EXTRACCIÓN INTELIGENTE DE TÉCNICO (ESQUINAS SUPERIOR E INFERIOR)
+# EXTRACCIÓN INTELIGENTE DE TÉCNICO
 # ---------------------------------------------------------
 def extraer_nombre_tecnico(texto_pdf):
     lineas = [l.strip() for l in texto_pdf.split('\n') if l.strip()]
     if not lineas:
         return "TÉCNICO NO DETECTADO"
     
-    # Buscar en la parte superior o inferior indicios de nombre tras etiquetas
     for l in lineas[:15] + lineas[-15:]:
         match = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL|TÉCNICO):\s*([A-ZÁÉÍÓÚÑ\s]{5,40})', l, re.IGNORECASE)
         if match:
             return match.group(1).strip().upper()
             
-    # Si no hay etiqueta clara, intentar buscar en las primeras o últimas líneas si tienen formato de nombre propio
     return lineas[0].upper() if len(lineas[0]) > 4 else "TÉCNICO NO DETECTADO"
 
 # ---------------------------------------------------------
@@ -308,6 +306,9 @@ def procesar_y_auditar_zip(archivo_zip_subido):
     master_acuse_texto = ""
     master_filename = ""
 
+    # Extraer nombre del técnico desde el nombre del archivo ZIP como respaldo infalible
+    nombre_zip_limpio = archivo_zip_subido.name.replace(".zip", "").replace("_", " ").replace("-", " ").upper()
+
     with zipfile.ZipFile(archivo_zip_subido, 'r') as z:
         archivos_pdf = [nombre for nombre in z.namelist() if nombre.lower().endswith('.pdf')]
         if not archivos_pdf:
@@ -324,7 +325,10 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     master_filename = nombre
 
     departamento_auto = determinar_departamento_automatico(master_acuse_texto)
+    
     tecnico_master = extraer_nombre_tecnico(master_acuse_texto)
+    if tecnico_master == "TÉCNICO NO DETECTADO":
+        tecnico_master = nombre_zip_limpio
 
     match_fechas = re.findall(r'\b([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\b', master_acuse_texto)
     fecha_acuse = match_fechas[-1] if match_fechas else date.today().strftime("%Y-%m-%d")
@@ -348,11 +352,23 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                 else:
                     num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
                     
-                    # Validación contra el catálogo maestro
                     texto_l_upper = linea_str.upper()
-                    marca = "OTRA"
-                    descripcion = "EQUIPO EPP"
+                    
+                    # Detección inteligente de Marca por nomenclatura de serie o texto
+                    if re.match(r'^[0-9]{2}[A-L]', num_serie) or "PETZL" in texto_l_upper:
+                        marca = "PETZL"
+                    elif "CUA" in num_serie or "ROCK" in texto_l_upper or "CATCH" in texto_l_upper:
+                        marca = "ROCK EMPIRE"
+                    elif "IRUDEK" in texto_l_upper:
+                        marca = "IRUDEK"
+                    elif "PROTECTA" in texto_l_upper:
+                        marca = "PROTECTA"
+                    else:
+                        marca = "OTRA"
+
+                    # Detección de Modelo y Descripción
                     modelo = "N/A"
+                    descripcion = "EQUIPO EPP"
 
                     for mod_key, info in CATALOGO_EQUIPOS_EPP.items():
                         if mod_key in texto_l_upper:
@@ -362,7 +378,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             break
                     
                     if modelo == "N/A":
-                        # Respaldo genérico si no está exacto en el catálogo
                         if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
                             descripcion = "ARNÉS"
                         elif "CASCO" in texto_l_upper:
