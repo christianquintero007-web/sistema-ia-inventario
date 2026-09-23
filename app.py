@@ -137,7 +137,7 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE", "60", "120"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
@@ -302,7 +302,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y MULTI-SERIE)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (ROBUSTA Y MULTI-CINTAS)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -370,7 +370,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     descripcion = "GUANTE DIELÉCTRICO 1000V"
                     candidatos_serie = [num_serie]
                 else:
-                    # Extraer TODOS los candidatos válidos de la línea para no perder elementos múltiples (ej. varias eslingas)
                     candidatos_serie = [p for p in partes if (len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)) or (len(p) >= 8 and p.isdigit())]
                     if not candidatos_serie:
                         candidatos_serie = [next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), partes[-1])]
@@ -380,7 +379,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     
                     texto_l_upper = linea_str.upper()
 
-                    # Búsqueda rigurosa en el Catálogo Maestro Ampliado
                     modelo = ""
                     marca = ""
                     descripcion = ""
@@ -392,7 +390,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Detección complementaria de respaldo si no hizo match exacto por llave
+                    # Detección inteligente ampliada (con soporte flexible para 60cm y 120cm separados o juntos)
                     if not descripcion:
                         if "CASCO" in texto_l_upper or "VERTEX" in texto_l_upper or "STRATO" in texto_l_upper:
                             descripcion = "CASCO"
@@ -407,9 +405,14 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                         elif "MOSQUETON" in texto_l_upper or "OK" in texto_l_upper:
                             descripcion = "MOSQUETÓN"
                             marca = "PETZL"
-                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper or "ANNEAU" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE"
+                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper or "ANNEAU" in texto_l_upper or "60" in texto_l_upper or "120" in texto_l_upper:
                             marca = "PETZL"
+                            if "60" in texto_l_upper:
+                                descripcion = "CINTA DE ANCLAJE 60CM"
+                            elif "120" in texto_l_upper:
+                                descripcion = "CINTA DE ANCLAJE 120CM"
+                            else:
+                                descripcion = "CINTA DE ANCLAJE"
                         elif "GRILLON" in texto_l_upper or "POSICIONADOR" in texto_l_upper:
                             descripcion = "POSICIONADOR / ESLINGA"
                             marca = "PETZL"
