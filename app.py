@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Año dinámico activo
+# Año dinámico activo (Evaluado automáticamente)
 ANIO_ACTUAL = date.today().year
 
 DEPARTAMENTOS = [
@@ -45,6 +45,42 @@ MAPA_DEPARTAMENTOS = {
 # CORREOS PREDETERMINADOS DEL SISTEMA
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
+
+# ---------------------------------------------------------
+# DETECTOR AUTOMÁTICO DE DEPARTAMENTO SEGÚN ACUSE EPI
+# ---------------------------------------------------------
+def determinar_departamento_automatico(texto_pdf):
+    """
+    Determina automáticamente el departamento leyendo Puesto, Parque Eólico y Localidad en el Acuse EPI.
+    """
+    texto_upper = texto_pdf.upper()
+
+    match_puesto = re.search(r'(?:PUESTO):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+    match_parque = re.search(r'(?:PARQUE|PARQUE E[ÓO]LICO):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+    match_localidad = re.search(r'(?:LOCALIDAD):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+
+    puesto = match_puesto.group(1).upper() if match_puesto else ""
+    parque = match_parque.group(1).upper() if match_parque else ""
+    localidad = match_localidad.group(1).upper() if match_localidad else ""
+    info_contexto = f"{puesto} {parque} {localidad} {texto_upper}"
+
+    # 1. Regla USA 118: Técnico de Mantenimiento + Ubicación USA (San Román, Austin, Texas)
+    if ("MANTENIMIENTO" in puesto or "TECNICO DE MANTENIMIENTO" in puesto) and any(k in info_contexto for k in ["SAN ROMAN", "SAN ROMÁN", "AUSTIN", "TEXAS", "USA"]):
+        return "USA 118"
+
+    # 2. Regla BASTIDOR 103: Soldador, Bastidor, Técnico Bastidor
+    if any(k in puesto for k in ["SOLDADOR", "BASTIDOR", "TECNICO BASTIDOR", "TÉCNICO BASTIDOR"]) or "BASTIDOR" in texto_upper:
+        return "BASTIDOR 103"
+
+    # 3. Regla PALAS 105: Técnico Palas, Palas, Líder Palas
+    if any(k in puesto for k in ["PALAS", "TECNICO PALAS", "TÉCNICO PALAS", "LIDER PALAS", "LÍDER PALAS"]) or "PALAS" in texto_upper:
+        return "PALAS 105"
+
+    # 4. Regla MANTENIMIENTO 111: Técnico Mantenimiento / Mantenimiento o Parques (Juchitán, Vestas, Bii Hioxo)
+    if any(k in puesto for k in ["MANTENIMIENTO", "TECNICO MANTENIMIENTO", "TÉCNICO MANTENIMIENTO"]) or any(k in info_contexto for k in ["JUCHITAN", "JUCHITÁN", "VESTAS", "BII HIOXO", "BIIHIOXO"]):
+        return "MANTENIMIENTO 111"
+
+    return "REVISIÓN"
 
 # ---------------------------------------------------------
 # ALERTAS VÍA POWER AUTOMATE
@@ -132,6 +168,10 @@ def obtener_cliente_gspread():
     return None
 
 def obtener_o_crear_hoja_anual(sh, nombre_base="INVENTARIO"):
+    """
+    Busca la pestaña del año actual (ej. INVENTARIO_2026).
+    Si cambia de año (ej. 2027), crea automáticamente la nueva hoja con sus encabezados.
+    """
     pestaña_target = f"{nombre_base}_{ANIO_ACTUAL}"
     
     try:
@@ -167,7 +207,7 @@ def sincronizar_o_actualizar_tecnico_sheets(df_nuevos, nombre_pestaña="INVENTAR
         return False
 
 # ---------------------------------------------------------
-# LÓGICA DE AUDITORÍA Y EXTRACTION DE ACUSE EPI
+# LÓGICA DE AUDITORÍA Y EXTRACCIÓN DE ACUSE EPI
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -179,7 +219,7 @@ def extraer_datos_pdf_individual(stream_pdf):
     except Exception:
         return ""
 
-def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
+def procesar_y_auditar_zip(archivo_zip_subido):
     fichas_pdf = {}
     master_acuse_texto = ""
     master_filename = ""
@@ -199,15 +239,18 @@ def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
                     master_acuse_texto = texto
                     master_filename = nombre
 
-    # 1. Extraer Técnico del Acuse Maestro
+    # 1. Determinar Departamento Automáticamente
+    departamento_auto = determinar_departamento_automatico(master_acuse_texto)
+
+    # 2. Extraer Técnico del Acuse Maestro
     match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
     tecnico_master = match_tecnico_master.group(1).strip().upper() if match_tecnico_master else "TÉCNICO NO DETECTADO"
 
-    # 2. Extraer Fecha del Acuse EPI
+    # 3. Extraer Fecha del Acuse EPI (apartado de fecha/firma)
     match_fechas = re.findall(r'\b([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\b', master_acuse_texto)
     fecha_acuse = match_fechas[-1] if match_fechas else date.today().strftime("%Y-%m-%d")
 
-    # 3. Construir ítems maestros para la hoja de Inventario
+    # 4. Construir ítems maestros para la hoja de Inventario
     items_master = []
     registros_inventario = []
     lineas = master_acuse_texto.split('\n')
@@ -228,12 +271,12 @@ def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
                     "marca": marca
                 })
 
-                # Formato de OBSERVACIONES y FECHA DE ESTATUS
+                # Formato de OBSERVACIONES
                 es_nuevo = "NUEVO" in linea_str.upper()
                 obs_formateada = f"(NUEVO) {tecnico_master}" if es_nuevo else tecnico_master
 
                 registros_inventario.append({
-                    "DEPARTAMENTO": departamento_sel,
+                    "DEPARTAMENTO": departamento_auto,
                     "DESCRIPCIÓN": partes[0] if len(partes) > 0 else "EQUIPO EPP",
                     "MARCA": marca,
                     "MODELO": modelo,
@@ -244,7 +287,7 @@ def procesar_y_auditar_zip(archivo_zip_subido, departamento_sel="PENDIENTE"):
                     "ESTATUS": "OK"
                 })
 
-    # 4. Auditar cada Ficha Individual
+    # 5. Auditar cada Ficha Individual
     reporte_correcto = []
     lista_errores = []
 
@@ -560,7 +603,7 @@ with tab_ia:
             prompt_sistema = """
 REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda strictly prohibido incluir introducciones, prefijos o saludos en inglés.
+- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
@@ -621,15 +664,13 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 # 6. AUDITORÍA Y CONTROL DE CALIDAD EN FICHAS (.ZIP) CON FILTRO DE AÑO
 with tab_zip:
     st.header(f"📂 Auditar y Corregir Fichas de Técnico (Año Activo: {ANIO_ACTUAL})")
-    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Registra todo el acuse EPI en el inventario con el formato de observaciones y fecha correspondiente.")
+    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Clasifica automáticamente el departamento (103, 105, 111, 118) y registra el Acuse EPI en la hoja de inventario.")
     
-    col_c1, col_c2, col_c3 = st.columns([1.5, 1.5, 1])
+    col_c1, col_c2 = st.columns([1.5, 1.5])
     with col_c1:
         correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones de error):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
     with col_c2:
         correo_companera = st.text_input("Correo de tu compañera (colaboradora):", value=CORREO_COMPANERA_OPERACIONES).strip()
-    with col_c3:
-        dep_destino = st.selectbox("Departamento:", DEPARTAMENTOS)
 
     zip_cargado = st.file_uploader(
         f"Sube el archivo ZIP con las fichas del técnico ({ANIO_ACTUAL}):", 
@@ -637,10 +678,10 @@ with tab_zip:
         key="uploader_zip_acuses"
     )
 
-    # ⚡ PROCESAMIENTO INSTANTÁNEO EN CUANTO SE SUBE EL ARCHIVO ZIP
+    # PROCESAMIENTO AUTOMÁTICO EN CUANTO SE CARGA EL ARCHIVO ZIP
     if zip_cargado:
-        with st.spinner(f"⚡ Leyendo, auditando y sincronizando el Acuse EPI ({ANIO_ACTUAL}) en Google Sheets..."):
-            tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado, departamento_sel=dep_destino)
+        with st.spinner(f"⚡ Analizando Acuse EPI ({ANIO_ACTUAL}), identificando departamento y sincronizando en Google Sheets..."):
+            tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
             
             st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
             
@@ -667,10 +708,10 @@ with tab_zip:
                 if not df_inventario.empty:
                     sincronizar_o_actualizar_tecnico_sheets(df_inventario, nombre_pestaña="INVENTARIO")
                     st.balloons()
-                    st.success(f"✅ Se registró el Acuse EPI completo de **{tecnico_master}** en la pestaña de Google Sheets.")
+                    st.success(f"✅ Se registró el Acuse EPI completo de **{tecnico_master}** en la pestaña `INVENTARIO_{ANIO_ACTUAL}` de Google Sheets.")
 
             if not df_inventario.empty:
-                st.subheader(f"📦 Registros Sincronizados en Inventario ({ANIO_ACTUAL})")
+                st.subheader(f"📦 Registros Clasificados y Sincronizados ({ANIO_ACTUAL})")
                 st.dataframe(df_inventario, use_container_width=True)
     else:
-        st.info("📌 **Estado:** Esperando archivo `.zip`. En cuanto selecciones o arrastres el archivo arriba, el sistema lo procesará y registrará automáticamente.")
+        st.info(f"📌 **Estado:** Esperando paquete `.zip` del período **{ANIO_ACTUAL}**. En cuanto selecciones o arrastres el archivo arriba, el sistema lo procesará automáticamente.")
