@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 import unicodedata
+import requests
 from datetime import date
 from openai import OpenAI
 
@@ -33,6 +34,50 @@ MAPA_DEPARTAMENTOS = {
     "REVISIÓN": ["REVISION", "REVISIÓN"],
     "BAJAS": ["BAJA", "BAJAS"]
 }
+
+# ---------------------------------------------------------
+# FUNCIÓN DE INTEGRACIÓN CON POWER AUTOMATE
+# ---------------------------------------------------------
+def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario="almacen@windsunmx.com", detalles_adicionales=""):
+    """
+    Envía un webhook HTTP POST a Power Automate para disparar la alerta por correo electrónico.
+    """
+    webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
+    
+    if not webhook_url:
+        st.error("⚠️ No se encontró la variable 'POWER_AUTOMATE_URL' en los Secrets de Streamlit.")
+        return False
+
+    asunto = f"🚨 ALERTA EPP: {equipo} - {estatus}"
+    cuerpo = (
+        f"Se ha registrado un reporte de inspección no conforme:\n\n"
+        f"• Técnico / Inspector: {tecnico}\n"
+        f"• Equipo / Elemento: {equipo}\n"
+        f"• Estado: {estatus}\n"
+        f"• Observaciones / Hallazgos: {detalles_adicionales if detalles_adicionales else 'Sin observaciones adicionales'}\n\n"
+        f"Mensaje generado automáticamente desde la App de Inspecciones EPP."
+    )
+
+    payload = {
+        "destinatario": destinatario,
+        "asunto": asunto,
+        "cuerpo": cuerpo,
+        "equipo": equipo,
+        "tecnico": tecnico,
+        "estatus": estatus
+    }
+
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        if response.status_code in [200, 202]:
+            st.success("📩 Alerta automática enviada por correo electrónico a través de Power Automate.")
+            return True
+        else:
+            st.error(f"❌ Error al enviar la alerta (Código HTTP: {response.status_code}).")
+            return False
+    except Exception as e:
+        st.error(f"❌ Error de conexión con Power Automate: {e}")
+        return False
 
 # ---------------------------------------------------------
 # CARGA Y NORMALIZACIÓN DE DATOS DESDE GOOGLE SHEETS
@@ -227,6 +272,15 @@ with tab_inspeccion:
                     st.success(f"✅ Inspección registrada para **{item_sel}** ({dep_insp}): **OK**")
                 else:
                     st.error(f"❌ Inspección para **{item_sel}** ({dep_insp}): **NO CONFORME**")
+                    
+                    # Disparar alerta automática a través de Power Automate
+                    enviar_alerta_power_automate(
+                        tecnico=inspector_str,
+                        equipo=f"{item_sel} ({dep_insp})",
+                        estatus="NO CONFORME",
+                        destinatario="almacen@windsunmx.com",
+                        detalles_adicionales=obs_insp
+                    )
                 
                 st.caption(f"Inspector: {inspector_str} | Fecha: {fecha_hoy} | Hallazgo: {obs_insp if obs_insp else 'Sin novedad'}")
 
