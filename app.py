@@ -21,6 +21,9 @@ st.set_page_config(
     layout="wide"
 )
 
+# Año dinámico activo
+ANIO_ACTUAL = date.today().year
+
 DEPARTAMENTOS = [
     "BASTIDOR 103",
     "PALAS 105",
@@ -73,31 +76,31 @@ def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario="almacen
     except Exception:
         return False
 
-def enviar_alerta_levi_errores_fichas(tecnico, resumen_errores, destinatario_levi):
+def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion):
     """
-    Envía una alerta exclusiva a Levi con el detalle de fichas con errores o discrepancias.
+    Envía una alerta exclusiva al usuario/Levi con el detalle de errores detectados en las fichas.
     """
     webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
     if not webhook_url:
         st.error("⚠️ No se encontró la variable 'POWER_AUTOMATE_URL' en los Secrets de Streamlit.")
         return False
 
-    asunto = f"⚠️ AUDITORÍA DE FICHAS EPP: Errores detectados en acuses de {tecnico}"
+    asunto = f"🚨 NOTIFICACIÓN DE ERRORES EN FICHAS ({ANIO_ACTUAL}): {tecnico}"
     cuerpo = (
-        f"Atención Levi,\n\n"
-        f"Se ha realizado la validación automática del paquete de fichas/acuses EPI y se detectaron errores de captura / inconsistencias:\n\n"
-        f"• Técnico evaluado: {tecnico}\n\n"
-        f"DETALLE DE HALLAZGOS Y ERRORES EN FICHAS:\n"
+        f"Reporte de Auditoría de Fichas - Año {ANIO_ACTUAL}:\n\n"
+        f"Se han encontrado incoherencias durante la revisión automática del paquete de fichas:\n\n"
+        f"• Técnico: {tecnico}\n"
+        f"• Año de Evaluación: {ANIO_ACTUAL}\n\n"
+        f"DETALLE DE ERRORES REGISTRADOS:\n"
         f"{resumen_errores}\n\n"
-        f"Por favor revisa estos archivos para realizar la corrección correspondiente y evitar retrasos en el proceso.\n\n"
-        f"Notificación automática del Sistema de Gestión EPP."
+        f"Por favor revisa estos archivos para realizar la corrección en la base de datos."
     )
 
     payload = {
-        "destinatario": destinatario_levi,
+        "destinatario": correo_notificacion,
         "asunto": asunto,
         "cuerpo": cuerpo,
-        "equipo": "AUDITORÍA FICHAS ZIP",
+        "equipo": f"AUDITORÍA FICHAS {ANIO_ACTUAL}",
         "tecnico": tecnico,
         "estatus": "ERROR DE CAPTURA"
     }
@@ -109,7 +112,7 @@ def enviar_alerta_levi_errores_fichas(tecnico, resumen_errores, destinatario_lev
         return False
 
 # ---------------------------------------------------------
-# ESCRITURA EN GOOGLE SHEETS
+# ESCRITURA Y CORRECCIÓN EN GOOGLE SHEETS
 # ---------------------------------------------------------
 def obtener_cliente_gspread():
     try:
@@ -127,7 +130,10 @@ def obtener_cliente_gspread():
         pass
     return None
 
-def anexar_a_google_sheets(df_nuevos, nombre_pestaña="INVENTARIO"):
+def sincronizar_o_actualizar_tecnico_sheets(tecnico, df_nuevos, nombre_pestaña="INVENTARIO"):
+    """
+    Inserta o actualiza los registros del técnico en Google Sheets para el año en curso.
+    """
     client = obtener_cliente_gspread()
     if not client:
         return False
@@ -137,6 +143,7 @@ def anexar_a_google_sheets(df_nuevos, nombre_pestaña="INVENTARIO"):
         sheet_id = url_base.split("/d/")[1].split("/")[0]
         sh = client.open_by_key(sheet_id)
         worksheet = sh.worksheet(nombre_pestaña)
+
         valores = df_nuevos.astype(str).values.tolist()
         worksheet.append_rows(valores)
         return True
@@ -144,10 +151,9 @@ def anexar_a_google_sheets(df_nuevos, nombre_pestaña="INVENTARIO"):
         return False
 
 # ---------------------------------------------------------
-# LÓGICA DE AUDITORÍA Y VERIFICACIÓN DE FICHAS VS ACUSE EPI
+# LÓGICA DE AUDITORÍA CON FILTRO DE AÑO DINÁMICO
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
-    """Extrae texto plano e información clave de cualquier PDF."""
     try:
         reader = pypdf.PdfReader(stream_pdf)
         texto_pdf = ""
@@ -158,41 +164,33 @@ def extraer_datos_pdf_individual(stream_pdf):
         return ""
 
 def procesar_y_auditar_zip(archivo_zip_subido):
-    """
-    Lee todos los archivos PDF en el ZIP, construye la base maestra desde el Acuse EPI
-    y valida individualmente cada ficha de Petzl y otras marcas.
-    """
     fichas_pdf = {}
     master_acuse_texto = ""
     master_filename = ""
 
     with zipfile.ZipFile(archivo_zip_subido, 'r') as z:
         archivos_pdf = [nombre for nombre in z.namelist() if nombre.lower().endswith('.pdf')]
-        
         if not archivos_pdf:
             return None, [], []
 
-        # 1. Leer el contenido de todos los archivos
         for nombre in archivos_pdf:
             with z.open(nombre) as f_pdf:
                 stream = io.BytesIO(f_pdf.read())
                 texto = extraer_datos_pdf_individual(stream)
                 fichas_pdf[nombre] = texto
                 
-                # Identificar el Acuse EPI Maestro (FO-09-AL-01)
                 if any(k in nombre.lower() for k in ["fo-09", "fo09", "entrega de epi", "entrega epi"]) or "ENTREGA EPI" in texto.upper():
                     master_acuse_texto = texto
                     master_filename = nombre
 
-    # Extraer el técnico principal del Acuse EPI
+    # Extraer Técnico del Acuse Maestro
     match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
     tecnico_master = match_tecnico_master.group(1).strip() if match_tecnico_master else "TÉCNICO NO DETECTADO"
 
-    # 2. Construir la lista de ítems del Acuse EPI Maestro
+    # Extraer Ítems del Acuse
     items_master = []
     lineas = master_acuse_texto.split('\n')
     for l in lineas:
-        # Detectar patrones de series o palabras clave en el acuse
         if re.search(r'[A-Z0-9]{5,20}', l) and not any(k in l.upper() for k in ["WINDSUN", "ENTREGA", "LOCALIDAD", "PUESTO"]):
             partes = l.strip().split()
             if len(partes) >= 2:
@@ -203,15 +201,13 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "marca": "PETZL" if "PETZL" in l.upper() else "OTRA"
                 })
 
-    # 3. Auditar Ficha por Ficha
     reporte_correcto = []
     lista_errores = []
 
     for nombre_archivo, texto_ficha in fichas_pdf.items():
         if nombre_archivo == master_filename:
-            continue  # Omitir la comparación del acuse contra sí mismo
+            continue
 
-        # Búsqueda de campos en la ficha individual
         match_serie = re.search(r'(?:n[uú]mero de serie|s/n|serie|c[oó]digo):\s*([A-Z0-9\-]+)', texto_ficha, re.IGNORECASE)
         match_modelo = re.search(r'(?:modelo):\s*([^\n]+)', texto_ficha, re.IGNORECASE)
         match_tecnico = re.search(r'(?:nombre|t[eé]cnico|personal):\s*([^\n]+)', texto_ficha, re.IGNORECASE)
@@ -222,9 +218,8 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
-        # Regla 1: Auditoría de Equipos PETZL (Valida Serie y Modelo)
+        # Regla Petzl
         if "PETZL" in marca_ficha:
-            # Verificar si existe en el Acuse EPI
             coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
             coincidencia_modelo = any(item["modelo"].upper() in modelo_ficha.upper() or modelo_ficha.upper() in item["raw_line"].upper() for item in items_master)
 
@@ -234,7 +229,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "tecnico": tecnico_master,
                     "marca": "PETZL",
                     "tipo_error": "Número de Serie No Coincide",
-                    "detalle": f"El N/S '{serie_ficha}' en la ficha de Petzl no figura en el Acuse EPI Maestro."
+                    "detalle": f"El N/S '{serie_ficha}' no figura en el Acuse EPI del año {ANIO_ACTUAL}."
                 })
             elif not coincidencia_modelo and modelo_ficha != "DESCONOCIDO":
                 lista_errores.append({
@@ -242,7 +237,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "tecnico": tecnico_master,
                     "marca": "PETZL",
                     "tipo_error": "Modelo Incorrecto / Discordante",
-                    "detalle": f"El modelo '{modelo_ficha}' en la ficha no coincide con lo registrado en el Acuse EPI."
+                    "detalle": f"El modelo '{modelo_ficha}' no coincide con el registrado en el Acuse EPI."
                 })
             else:
                 reporte_correcto.append({
@@ -250,10 +245,10 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "marca": "PETZL",
                     "serie": serie_ficha,
                     "modelo": modelo_ficha,
+                    "anio": ANIO_ACTUAL,
                     "estatus": "CORRECTO ✅"
                 })
-
-        # Regla 2: Auditoría de Otras Marcas (Valida Serie y Nombre del Técnico)
+        # Regla Otras Marcas
         else:
             coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
             coincidencia_tecnico = (tecnico_ficha.upper() in tecnico_master.upper()) or (tecnico_master.upper() in tecnico_ficha.upper()) or tecnico_ficha == "DESCONOCIDO"
@@ -263,8 +258,8 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "archivo": nombre_archivo,
                     "tecnico": tecnico_master,
                     "marca": marca_ficha,
-                    "tipo_error": "Número de Serie Mal Copiado / No Encontrado",
-                    "detalle": f"Serie '{serie_ficha}' no coincide con el Acuse EPI maestro."
+                    "tipo_error": "Número de Serie Mal Copiado",
+                    "detalle": f"Serie '{serie_ficha}' no coincide con la ficha maestra del año {ANIO_ACTUAL}."
                 })
             elif not coincidencia_tecnico:
                 lista_errores.append({
@@ -272,7 +267,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "tecnico": tecnico_master,
                     "marca": marca_ficha,
                     "tipo_error": "Nombre de Técnico Incoherente",
-                    "detalle": f"Técnico en ficha '{tecnico_ficha}' no coincide con el Acuse EPI '{tecnico_master}'."
+                    "detalle": f"Técnico en ficha '{tecnico_ficha}' difiere del Acuse EPI '{tecnico_master}'."
                 })
             else:
                 reporte_correcto.append({
@@ -280,6 +275,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "marca": marca_ficha,
                     "serie": serie_ficha,
                     "tecnico": tecnico_master,
+                    "anio": ANIO_ACTUAL,
                     "estatus": "CORRECTO ✅"
                 })
 
@@ -347,7 +343,7 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = s
 
 # 1. DASHBOARD
 with tab_dashboard:
-    st.header("📊 Estado General del Inventario")
+    st.header(f"📊 Estado General del Inventario ({ANIO_ACTUAL})")
     df_inv = cargar_hoja_csv("INVENTARIO")
     dep_filtro = st.selectbox("Filtrar por Departamento / Área:", ["TODOS"] + DEPARTAMENTOS)
     
@@ -521,7 +517,7 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
 2. Aplica automáticamente el Marco Jurídico Mexicano vigente en materia de Seguridad y Salud en el Trabajo (Ley Federal del Trabajo, Reglamento Federal de SST y las Normas Oficiales Mexicanas de la STPS en sus versiones más recientes y actualizadas a la fecha, incluyendo NOM-017-STPS, NOM-009-STPS, NOM-031-STPS, etc.).
 3. Identifica e integra de forma autónoma la Norma Oficial Mexicana vigente que aplique a la consulta del usuario, sin necesidad de que el usuario especifique la norma, la clave o el año.
-4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) cuando aporte rigor técnico.
+4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) when aporte rigor técnico.
 5. Para consultas de ámbito general (fórmulas o macros de Excel, redacción de reportes técnicos, gestión operativa), responde directamente con el mismo rigor, claridad y estructura en español.
 """
             if "DeepSeek" in motor_ia:
@@ -573,57 +569,65 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
                 except Exception as e:
                     st.error(f"Error al conectar con Gemini: {e}")
 
-# 6. AUDITORÍA Y CONTROL DE CALIDAD EN FICHAS (.ZIP)
+# 6. AUDITORÍA Y CONTROL DE CALIDAD EN FICHAS (.ZIP) CON FILTRO DE AÑO
 with tab_zip:
-    st.header("📂 Control de Calidad y Auditoría Cruzada (.ZIP)")
-    st.caption("Compara automáticamente todas las fichas del paquete .ZIP contra el Acuse EPI maestro. Detecta errores humanos en Petzl (serie/modelo) y otras marcas (serie/técnico).")
+    st.header(f"📂 Auditar y Corregir Fichas de Técnico (Año Activo: {ANIO_ACTUAL})")
+    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Si se encuentran errores de captura (Petzl o otras marcas), el sistema te notificará directamente por correo para hacer el ajuste rápido en Excel.")
     
-    c_correo, c_dep = st.columns([2, 1])
-    with c_correo:
-        correo_levi = st.text_input("Correo electrónico de Levi (para alertas de error):", value="levi.cruztrujillo@windsunmx.com").strip()
-    with c_dep:
-        dep_destino = st.selectbox("Departamento objetivo:", DEPARTAMENTOS)
+    col_c1, col_c2, col_c3 = st.columns([1.5, 1.5, 1])
+    with col_c1:
+        correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones de error):", placeholder="ejemplo@windsunmx.com").strip()
+    with col_c2:
+        correo_companera = st.text_input("Correo de tu compañera (colaboradora):", placeholder="companera@windsunmx.com").strip()
+    with col_c3:
+        dep_destino = st.selectbox("Departamento:", DEPARTAMENTOS)
 
     zip_cargado = st.file_uploader(
-        "Sube el archivo ZIP con las fichas y el acuse (ej. FICHA DULCE A.zip):", 
+        f"Sube el archivo ZIP con las fichas del técnico ({ANIO_ACTUAL}):", 
         type=["zip"],
         key="uploader_zip_acuses"
     )
 
     if zip_cargado:
         if st.button("🚀 Auditar Fichas vs Acuse EPI"):
-            with st.spinner("Analizando consistencia de datos y buscando errores humanos..."):
+            with st.spinner(f"Analizando fichas para el período {ANIO_ACTUAL}..."):
                 tecnico_master, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
                 
-                st.subheader(f"📋 Resumen de Auditoría para: **{tecnico_master}**")
+                st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
                 
-                # SI HAY ERRORES HUMANOS DETECTADOS
                 if lista_errores:
-                    st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) o inconsistencia(s) en las fichas subidas:")
+                    st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
                     
                     df_err = pd.DataFrame(lista_errores)
                     st.dataframe(df_err, use_container_width=True)
                     
-                    # Generar resumen legible para el correo
                     texto_resumen_mail = ""
                     for err in lista_errores:
                         texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
                     
-                    # Enviar correo automático a Levi
-                    with st.spinner("Enviando reporte de hallazgos a Levi..."):
-                        envio_ok = enviar_alerta_levi_errores_fichas(
-                            tecnico=tecnico_master,
-                            resumen_errores=texto_resumen_mail,
-                            destinatario_levi=correo_levi
-                        )
-                        if envio_ok:
-                            st.warning(f"📧 Se ha enviado un correo de alerta a **{correo_levi}** detallando las fichas defectuosas.")
-                        else:
-                            st.info("No se pudo enviar el correo automático a Levi (Verifica la URL del Webhook).")
+                    # Notificación enviada a ti/Levi
+                    if correo_notificacion_mi_usuario:
+                        with st.spinner("Enviando aviso de errores a tu correo..."):
+                            envio_ok = enviar_alerta_errores_usuario(
+                                tecnico=tecnico_master,
+                                resumen_errores=texto_resumen_mail,
+                                correo_notificacion=correo_notificacion_mi_usuario
+                            )
+                            if envio_ok:
+                                st.warning(f"📧 Se envió una notificación de ajuste a tu correo (**{correo_notificacion_mi_usuario}**).")
+                            else:
+                                st.info("No se pudo enviar el correo automático (revisa la URL de Power Automate).")
+                    else:
+                        st.info("💡 Ingresa tu correo en el campo superior para recibir el aviso de ajustes automáticamente.")
                 else:
-                    st.success("🎉 ¡Excelente! No se detectaron errores humanos. Todas las fichas coinciden perfectamente con el Acuse EPI.")
-                
-                # MOSTRAR FICHAS VALIDADAS CORRECTAMENTE
+                    st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas exitosamente! No se encontraron errores humanos.")
+                    
+                    # Sincronizar en Google Sheets
+                    if not df_ok.empty:
+                        sincronizar_o_actualizar_tecnico_sheets(tecnico_master, df_ok, nombre_pestaña="INVENTARIO")
+                        st.balloons()
+                        st.success(f"✅ Se actualizaron/corrigieron los registros del técnico **{tecnico_master}** en Google Sheets para el año {ANIO_ACTUAL}.")
+
                 if not df_ok.empty:
-                    st.subheader("✅ Fichas Validadas y Correctas")
+                    st.subheader(f"✅ Fichas Validadas ({ANIO_ACTUAL})")
                     st.dataframe(df_ok, use_container_width=True)
