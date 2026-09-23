@@ -44,24 +44,37 @@ CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
 
 # ---------------------------------------------------------
-# DICCIONARIO MAESTRO DE CATÁLOGO EPP
+# DICCIONARIO MAESTRO DE CATÁLOGO EPP (AMPLIADO Y PRECISO)
 # ---------------------------------------------------------
 CATALOGO_EQUIPOS_EPP = {
     "VERTEX": {"marca": "PETZL", "descripcion": "CASCO"},
     "STRATO": {"marca": "PETZL", "descripcion": "CASCO"},
+    "ATLAS LOCK": {"marca": "ROCK EMPIRE", "descripcion": "ARNÉS"},
     "ATLAS": {"marca": "ROCK EMPIRE", "descripcion": "ARNÉS"},
-    "LOCK": {"marca": "ROCK EMPIRE", "descripcion": "ARNÉS"},
+    "AVAO BOD FAST": {"marca": "PETZL", "descripcion": "ARNÉS"},
+    "AVAO FAST": {"marca": "PETZL", "descripcion": "ARNÉS"},
+    "AVAO BOD": {"marca": "PETZL", "descripcion": "ARNÉS"},
+    "VOLT": {"marca": "PETZL", "descripcion": "ARNÉS"},
     "AUSTIN": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
     "FLEX 383": {"marca": "IRUDEK", "descripcion": "GANCHO GRAN APERTURA"},
+    "C226H": {"marca": "PROTECTA", "descripcion": "GANCHO"},
     "3100431": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
     "3100516": {"marca": "PROTECTA", "descripcion": "CINTURÓN RETRÁCTIL"},
+    "ANNEAU C40": {"marca": "PETZL", "descripcion": "CINTA DE ANCLAJE"},
     "ANNEAU": {"marca": "PETZL", "descripcion": "CINTA DE ANCLAJE"},
-    "GRILLON": {"marca": "PETZL", "descripcion": "GRILLON / ESLINGA"},
+    "GRILLON HOOK": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA"},
+    "GRILLON": {"marca": "PETZL", "descripcion": "POSICIONADOR / ESLINGA"},
     "CATCH FIX": {"marca": "ROCK EMPIRE", "descripcion": "POSICIONADOR"},
     "CROLL": {"marca": "PETZL", "descripcion": "BLOQUEADOR CROLL"},
+    "OK TL": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "OK": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "AM'D": {"marca": "PETZL", "descripcion": "MOSQUETÓN"},
     "MAGNUM": {"marca": "ROCK EMPIRE", "descripcion": "MOSQUETÓN"},
+    "ABSORBICA Y FLEX 150": {"marca": "PETZL", "descripcion": "ABSORBEDOR CON ESLINGA 150CM"},
+    "ABSORBICA Y FLEX": {"marca": "PETZL", "descripcion": "ABSORBEDOR CON ESLINGA"},
+    "SKC H04 EVO": {"marca": "SOMAIN", "descripcion": "ANTICAÍDAS DESLIZANTE"},
+    "SOLLVIGO": {"marca": "HONEYWELL", "descripcion": "ANTICAÍDAS"},
+    "SÖLL VI-GO": {"marca": "HONEYWELL", "descripcion": "ANTICAÍDAS"},
     "NOVAX": {"marca": "NOVAX", "descripcion": "GUANTE DIELÉCTRICO 1000V"}
 }
 
@@ -124,7 +137,7 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
@@ -289,7 +302,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (FLEXIBLE)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (ESTRICTA Y BLINDADA)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -356,23 +369,15 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     marca = "NOVAX"
                     descripcion = "GUANTE DIELÉCTRICO 1000V"
                 else:
-                    num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
+                    num_serie_candidato = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
+                    num_serie = re.sub(r'(?i)^(fix|s/n|serie)[:\s]*', '', num_serie_candidato)
                     
                     texto_l_upper = linea_str.upper()
-                    
-                    if re.match(r'^[0-9]{2}[A-L]', num_serie) or "PETZL" in texto_l_upper:
-                        marca = "PETZL"
-                    elif "CUA" in num_serie or "ROCK" in texto_l_upper or "CATCH" in texto_l_upper:
-                        marca = "ROCK EMPIRE"
-                    elif "IRUDEK" in texto_l_upper:
-                        marca = "IRUDEK"
-                    elif "PROTECTA" in texto_l_upper:
-                        marca = "PROTECTA"
-                    else:
-                        marca = "OTRA"
 
+                    # Búsqueda rigurosa en el Catálogo Maestro Ampliado
                     modelo = "N/A"
-                    descripcion = "EQUIPO EPP"
+                    marca = "OTRA"
+                    descripcion = ""
 
                     for mod_key, info in CATALOGO_EQUIPOS_EPP.items():
                         if mod_key in texto_l_upper:
@@ -381,18 +386,9 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    if modelo == "N/A":
-                        if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
-                            descripcion = "ARNÉS"
-                        elif "CASCO" in texto_l_upper:
-                            descripcion = "CASCO"
-                        elif "ESLINGA" in texto_l_upper:
-                            descripcion = "ESLINGA"
-                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper:
-                            descripcion = "CINTA DE ANCLAJE"
-                        elif "CROLL" in texto_l_upper:
-                            descripcion = "BLOQUEADOR CROLL"
-                            marca = "PETZL"
+                    # Si no coincide estrictamente con el diccionario maestro autorizado, se descarta (se deja en blanco/omite)
+                    if not descripcion:
+                        continue
 
                 items_master.append({
                     "raw_line": linea_str,
