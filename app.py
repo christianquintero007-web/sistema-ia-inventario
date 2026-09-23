@@ -208,12 +208,12 @@ with tab_historial:
         st.dataframe(df_insp_view, use_container_width=True)
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
-# ---------------------------------------------------------
-# 5. ASISTENTE IA (DETECCIÓN AUTOMÁTICA DE MODELOS VIGENTES)
+ # ---------------------------------------------------------
+# 5. ASISTENTE IA (NOM-017-STPS-2024 + ESPAÑOL OBLIGATORIO)
 # ---------------------------------------------------------
 with tab_ia:
     st.header("🤖 Asistente Inteligente y Consultor Técnico")
-    st.caption("Consulta sobre criterios de rechazo de EPP, normas (NOM-017-STPS, OSHA), soporte en Excel, redacción de informes o cualquier duda general.")
+    st.caption("Consulta sobre la norma NOM-017-STPS-2024, criterios de rechazo de EPP, soporte en Excel, redacción de informes o cualquier duda general.")
     
     pregunta = st.text_input("Escribe tu consulta:")
     
@@ -226,24 +226,34 @@ with tab_ia:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
                     
                     prompt = f"""
-                    Eres un asistente inteligente útil y versátil. 
-                    Tienes especial experiencia en Seguridad Industrial, Inspección de EPP de Altura y Normatividad (NOM-017-STPS, OSHA, NFPA), 
-                    pero puedes responder con claridad, estructura y precisión sobre cualquier tema general que el usuario consulte (fórmulas de Excel, Macros VBA, redacción de informes, procesos, etc.).
+REGLA DE IDIOMA OBLIGATORIA:
+- Debes responder SIEMPRE Y ÚNICAMENTE EN ESPAÑOL, a menos que el usuario en su consulta te solicite explícitamente responder en otro idioma.
 
-                    Consulta del usuario: {pregunta}
-                    """
+ROL Y REGLAS NORMATIVAS TÉCNICAS:
+1. Eres un Ingeniero especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP de Altura en México.
+2. Fundamenta tus respuestas normativas estrictamente bajo la versión vigente **NOM-017-STPS-2024** ("Equipo de protección personal - Selección, uso y manejo en los centros de trabajo"), dejando sin efecto los criterios obsoletos de la versión previa de 2008.
+3. Considera los ejes clave de la NOM-017-STPS-2024:
+   - Análisis de riesgo por puesto de trabajo y actividad específica.
+   - Determinación del ciclo de vida útil del EPP y criterios obligatorios para su baja / disposición final.
+   - Evaluación de la compatibilidad cuando se utiliza más de un EPP simultáneamente (ej. casco + barbiquejo + arnés).
+   - Obligación de capacitación teórica-práctica para los trabajadores.
+   - Referencias a normas internacionales vigentes (ANSI, EN, OSHA, NFPA) cuando aplique a equipos de altitud.
+4. Si el usuario realiza una pregunta general (fórmulas o macros de Excel, redacción de informes, procesos, etc.), respóndela en español con la misma claridad, estructura y precisión.
+
+Consulta del usuario: {pregunta}
+"""
                     
                     response = None
                     modelo_usado = None
                     
-                    with st.spinner("Procesando consulta con la IA..."):
-                        # Obtener automáticamente la lista de modelos activos en tiempo real
+                    with st.spinner("Procesando consulta en español con la IA..."):
+                        # Obtener automáticamente los modelos activos
                         modelos_disponibles = [
                             m.name for m in genai.list_models() 
                             if 'generateContent' in m.supported_generation_methods
                         ]
                         
-                        # Probar con los modelos activos hasta que uno responda
+                        # Probar modelos disponibles en orden
                         for mod_name in modelos_disponibles:
                             try:
                                 model = genai.GenerativeModel(mod_name)
