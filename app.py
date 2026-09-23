@@ -155,17 +155,23 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CORREGIDO)
+# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CON DEBUGS)
 # ---------------------------------------------------------
 def enviar_datos_a_apps_script(df_nuevos):
     try:
         df_limpio = df_nuevos.fillna("").astype(str)
         registros = df_limpio.to_dict(orient="records")
         
-        response = requests.post(APPS_SCRIPT_URL, json=registros, timeout=20)
-        return response.status_code == 200
+        response = requests.post(APPS_SCRIPT_URL, json=registros, timeout=30)
+        
+        if response.status_code == 200:
+            st.toast("✅ Apps Script procesó los datos correctamente.", icon="🚀")
+            return True
+        else:
+            st.error(f"⚠️ Error HTTP {response.status_code}: {response.text}")
+            return False
     except Exception as e:
-        st.error(f"Error de conexión con Apps Script: {e}")
+        st.error(f"❌ Error de conexión con Apps Script: {e}")
         return False
 
 # ---------------------------------------------------------
@@ -265,7 +271,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 
         serie_ficha = match_serie.group(1).strip().upper() if match_serie else "DESCONOCIDO"
         modelo_ficha = match_modelo.group(1).strip() if modelo_ficha else "DESCONOCIDO"
-        tecnico_ficha = match_tecnico.group(1).strip() if tecnico_ficha else "DESCONOCIDO"
+        tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
         if "PETZL" in marca_ficha:
