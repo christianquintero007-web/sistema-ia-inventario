@@ -126,7 +126,7 @@ elif password_ingresada != "":
     st.sidebar.error("❌ Contraseña incorrecta")
 
 # ---------------------------------------------------------
-# FILTRO ESTRICTO DE ELEMENTOS SERIABLES REALES
+# FILTRO ESTRICTO DE ELEMENTOS SERIABLES Y GUANTES DIELÉCTRICOS
 # ---------------------------------------------------------
 def es_item_valido_o_excepcion(linea_texto):
     texto_upper = linea_texto.upper()
@@ -137,7 +137,7 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
@@ -302,7 +302,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y LIMPIA)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y PRECISA)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -364,7 +364,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
             partes = linea_str.split()
             if len(partes) >= 1:
                 if es_excepcion_guante:
-                    num_serie = "SIN SERIE (DIELÉCTRICO)"
+                    num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), "SIN SERIE (DIELÉCTRICO)")
                     modelo = "CLASE 0 / 1000V"
                     marca = "NOVAX"
                     descripcion = "GUANTE DIELÉCTRICO 1000V"
@@ -386,13 +386,27 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Si no coincide exactamente, se dejan celdas en blanco o genéricas pero la fila se añade
+                    # Detección complementaria por palabras clave directas si no hizo match exacto por llave
                     if not descripcion:
-                        descripcion = ""
-                    if not marca:
-                        marca = ""
-                    if not modelo:
-                        modelo = ""
+                        if "CASCO" in texto_l_upper or "VERTEX" in texto_l_upper or "STRATO" in texto_l_upper:
+                            descripcion = "CASCO"
+                            marca = "PETZL"
+                        elif "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper or "ATLAS" in texto_l_upper or "AVAO" in texto_l_upper:
+                            descripcion = "ARNÉS"
+                        elif "GANCHO" in texto_l_upper or "APERTURA" in texto_l_upper or "AUSTIN" in texto_l_upper:
+                            descripcion = "GANCHO"
+                        elif "RETRACTIL" in texto_l_upper or "CINTURON" in texto_l_upper:
+                            descripcion = "CINTURÓN RETRÁCTIL"
+                            marca = "PROTECTA"
+                        elif "MOSQUETON" in texto_l_upper or "OK" in texto_l_upper:
+                            descripcion = "MOSQUETÓN"
+                            marca = "PETZL"
+                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper or "ANNEAU" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE"
+                            marca = "PETZL"
+                        elif "GRILLON" in texto_l_upper or "POSICIONADOR" in texto_l_upper:
+                            descripcion = "POSICIONADOR / ESLINGA"
+                            marca = "PETZL"
 
                 items_master.append({
                     "raw_line": linea_str,
