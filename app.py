@@ -383,7 +383,6 @@ with tab_ia:
     if pregunta_ia:
         with st.spinner("Generando respuesta con DeepSeek..."):
             try:
-                # Conexión con DeepSeek usando el cliente de OpenAI (compatible con su API)
                 deepseek_key = st.secrets.get("DEEPSEEK_API_KEY")
                 if not deepseek_key:
                     st.error("⚠️ Falta configurar la clave `DEEPSEEK_API_KEY` en los secretos de Streamlit.")
@@ -401,7 +400,7 @@ with tab_ia:
                         stream=False
                     )
                     texto_respuesta = response.choices[0].message.content
-                    st.markdown(### Respuesta:)
+                    st.markdown("### Respuesta:")
                     st.write(texto_respuesta)
             except Exception as e:
                 st.error(f"❌ Error al conectar con DeepSeek: {e}")
