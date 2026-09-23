@@ -81,10 +81,9 @@ st.sidebar.divider()
 st.sidebar.header("🔒 Panel de Administrador")
 password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
 
-# Contraseña predeterminada (puedes cambiarla aquí directamente)
 PASSWORD_ADMIN = "Windsun2026*"
 
-sistema_activo = True  # Por defecto el sistema opera con normalidad
+sistema_activo = True  
 
 if password_ingresada == PASSWORD_ADMIN:
     st.sidebar.success("🔓 Administrador Autenticado")
@@ -142,7 +141,6 @@ def determinar_departamento_automatico(texto_pdf):
 # ---------------------------------------------------------
 def enviar_datos_a_google_sheets(df_nuevos):
     try:
-        # Aseguramos formato limpio compatible con Apps Script
         registros = []
         for _, row in df_nuevos.iterrows():
             registros.append({
@@ -327,7 +325,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         match_marca = re.search(r'(?:marca):\s*([^\n]+)', texto_ficha, re.IGNORECASE)
 
         serie_ficha = match_serie.group(1).strip().upper() if match_serie else "DESCONOCIDO"
-        modelo_ficha = match_modelo.group(1).strip() if modelo_ficha else "DESCONOCIDO"
+        modelo_ficha = match_modelo.group(1).strip() if (match_modelo and match_modelo.group(1)) else "DESCONOCIDO"
         tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
@@ -397,7 +395,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 # ---------------------------------------------------------
 st.title("🛡️ Sistema de Gestión EPP e Inspecciones")
 
-# VALIDACIÓN DE KILL SWITCH
 if not sistema_activo:
     st.warning("⚠️ **SISTEMA INHABILITADO:** El administrador ha pausado temporalmente las operaciones y la sincronización con Excel.")
     st.stop()
@@ -490,7 +487,6 @@ with tab_ia:
             except Exception as e:
                 st.error(f"❌ Error al conectar con DeepSeek: {e}")
 
-# 6. PESTAÑA DE AUDITORÍA, GOOGLE SHEETS Y DESCARGA DIRECTA
 with tab_zip:
     st.header(f"📂 Auditoría y Sincronización de Fichas EPP ({ANIO_ACTUAL})")
     st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, filtrará elementos seriables (con excepción de guantes dieléctricos 1000V/Clase 0) y te permitirá enviarlos a Google Sheets o descargar el Excel.")
@@ -536,7 +532,6 @@ with tab_zip:
             if not df_inventario.empty:
                 st.success(f"✅ Se procesaron **{len(df_inventario)}** filas correctamente para **{tecnico_master}**.")
                 
-                # BOTÓN DE INTENTO DE ENVÍO AUTOMÁTICO A GOOGLE SHEETS
                 if st.button("🚀 Enviar Automáticamente a Google Sheets"):
                     with st.spinner("Conectando con Google Sheets..."):
                         exito_gs, mensaje_gs = enviar_datos_a_google_sheets(df_inventario)
@@ -546,7 +541,6 @@ with tab_zip:
                         else:
                             st.error(f"⚠️ No se pudo sincronizar automáticamente con Google Sheets. Detalle: {mensaje_gs}")
 
-                # CREAR ARCHIVO EXCEL EN MEMORIA PARA DESCARGA DIRECTA (RESPALDO INFALIBLE)
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df_inventario.to_excel(writer, index=False, sheet_name='INVENTARIO')
