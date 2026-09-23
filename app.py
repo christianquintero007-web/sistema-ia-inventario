@@ -41,6 +41,43 @@ MAPA_DEPARTAMENTOS = {
 
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
+
+# ---------------------------------------------------------
+# BARRA LATERAL: PANEL DE ADMINISTRACIÓN Y PERSONALIZACIÓN
+# ---------------------------------------------------------
+st.sidebar.header("⚙️ Configuración Visual")
+color_fondo = st.sidebar.color_picker("🎨 Color de Fondo del Sistema", "#0e1117")
+
+# Aplicar estilos visuales y protección contra selección de texto básica en navegador
+st.markdown(f"""
+    <style>
+    .stApp {{
+        background-color: {color_fondo};
+    }}
+    /* Opcional: Dificultar selección de texto en la interfaz web */
+    body {{
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }}
+    </style>
+""", unsafe_allow_html=True)
+
+st.sidebar.divider()
+st.sidebar.header("🔒 Panel de Administrador")
+password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
+
+# Contraseña predeterminada de administrador (puedes cambiarla aquí o usar st.secrets)
+PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "Windsun2026*")
+
+sistema_activo = True  # Por defecto activo
+
+if password_ingresada == PASSWORD_ADMIN:
+    st.sidebar.success("🔓 Modo Administrador Activado")
+    sistema_activo = st.sidebar.toggle("🟢 Sistema Operativo (Activo/Inactivo)", value=True, help="Permite apagar o encender el sistema completo en caso de mantenimiento.")
+elif password_ingresada != "":
+    st.sidebar.error("❌ Contraseña incorrecta")
 
 # ---------------------------------------------------------
 # FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIÓN DE GUANTES 1000V / CLASE 0
@@ -86,6 +123,24 @@ def determinar_departamento_automatico(texto_pdf):
         return "MANTENIMIENTO 111"
 
     return "REVISIÓN"
+
+# ---------------------------------------------------------
+# CONEXIÓN DIRECTA CON GOOGLE SHEETS (APPS SCRIPT)
+# ---------------------------------------------------------
+def enviar_datos_a_google_sheets(df_nuevos):
+    try:
+        df_limpio = df_nuevos.fillna("").astype(str)
+        registros = df_limpio.to_dict(orient="records")
+        
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(APPS_SCRIPT_URL, json=registros, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return True, response.text
+        else:
+            return False, f"Código HTTP {response.status_code}: {response.text}"
+    except Exception as e:
+        return False, str(e)
 
 # ---------------------------------------------------------
 # ALERTAS VÍA POWER AUTOMATE
@@ -317,6 +372,11 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 # ---------------------------------------------------------
 st.title("🛡️ Sistema de Gestión EPP e Inspecciones")
 
+# VALIDACIÓN DE KILL SWITCH (SOLO SI EL ADMINISTRADOR LO DESACTIVA)
+if not sistema_activo:
+    st.warning("⚠️ **SISTEMA INHABILITADO:** El administrador ha pausado temporalmente las operaciones y la sincronización con Excel.")
+    st.stop()
+
 tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = st.tabs([
     "📊 Dashboard", 
     "➕ Registrar Equipo", 
@@ -405,10 +465,10 @@ with tab_ia:
             except Exception as e:
                 st.error(f"❌ Error al conectar con DeepSeek: {e}")
 
-# 6. PESTAÑA DE AUDITORÍA Y DESCARGA DIRECTA
+# 6. PESTAÑA DE AUDITORÍA, GOOGLE SHEETS Y DESCARGA DIRECTA
 with tab_zip:
-    st.header(f"📂 Auditoría y Exportación de Fichas EPP ({ANIO_ACTUAL})")
-    st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, clasificará el departamento, filtrará los elementos seriables (con excepción de guantes dieléctricos 1000V/Clase 0) y te generará un archivo Excel listo para descargar.")
+    st.header(f"📂 Auditoría y Sincronización de Fichas EPP ({ANIO_ACTUAL})")
+    st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, filtrará elementos seriables (con excepción de guantes dieléctricos 1000V/Clase 0) y te permitirá enviarlos a Google Sheets o descargar el Excel.")
     
     col_c1, col_c2 = st.columns([1.5, 1.5])
     with col_c1:
@@ -419,11 +479,11 @@ with tab_zip:
     zip_cargado = st.file_uploader(
         "Sube el archivo ZIP con las fichas del técnico:", 
         type=["zip"],
-        key="uploader_zip_descarga_completa"
+        key="uploader_zip_sincronizacion_total"
     )
 
     if zip_cargado:
-        with st.spinner("⚡ Leyendo PDF, detectando departamento y generando archivo..."):
+        with st.spinner("⚡ Leyendo PDF, detectando departamento y procesando registros..."):
             tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
             
             st.subheader(f"📋 Resumen de Auditoría - Técnico: **{tecnico_master}**")
@@ -451,15 +511,24 @@ with tab_zip:
             if not df_inventario.empty:
                 st.success(f"✅ Se procesaron **{len(df_inventario)}** filas correctamente para **{tecnico_master}**.")
                 
-                # CREAR ARCHIVO EXCEL EN MEMORIA PARA DESCARGA
+                # BOTÓN DE INTENTO DE ENVÍO AUTOMÁTICO A GOOGLE SHEETS
+                if st.button("🚀 Enviar Automáticamente a Google Sheets"):
+                    with st.spinner("Conectando con Google Sheets..."):
+                        exito_gs, mensaje_gs = enviar_datos_a_google_sheets(df_inventario)
+                        if exito_gs:
+                            st.success("🎉 ¡Datos sincronizados exitosamente con tu Google Sheets!")
+                            st.balloons()
+                        else:
+                            st.error(f"⚠️ No se pudo sincronizar automáticamente con Google Sheets. Detalle: {mensaje_gs}")
+
+                # CREAR ARCHIVO EXCEL EN MEMORIA PARA DESCARGA DIRECTA (RESPALDO INFALIBLE)
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df_inventario.to_excel(writer, index=False, sheet_name='INVENTARIO')
                 excel_data = output.getvalue()
 
-                # BOTÓN DE DESCARGA DIRECTA
                 st.download_button(
-                    label="📥 Descargar Inventario Formateado para Excel (.xlsx)",
+                    label="📥 Descargar Inventario Formateado en Excel (.xlsx)",
                     data=excel_data,
                     file_name=f"Inventario_{tecnico_master.replace(' ', '_')}_{date.today()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
