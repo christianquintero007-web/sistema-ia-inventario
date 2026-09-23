@@ -49,13 +49,12 @@ APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83
 st.sidebar.header("⚙️ Configuración Visual")
 color_fondo = st.sidebar.color_picker("🎨 Color de Fondo del Sistema", "#0e1117")
 
-# Aplicar estilos visuales y protección contra selección de texto básica en navegador
+# Estilos CSS avanzados para forzar el cambio de color de fondo en toda la aplicación
 st.markdown(f"""
     <style>
-    .stApp {{
-        background-color: {color_fondo};
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
+        background-color: {color_fondo} !important;
     }}
-    /* Opcional: Dificultar selección de texto en la interfaz web */
     body {{
         -webkit-user-select: none;
         -ms-user-select: none;
@@ -68,7 +67,6 @@ st.sidebar.divider()
 st.sidebar.header("🔒 Panel de Administrador")
 password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
 
-# Contraseña predeterminada de administrador (puedes cambiarla aquí o usar st.secrets)
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "Windsun2026*")
 
 sistema_activo = True  # Por defecto activo
