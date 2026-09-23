@@ -6,3 +6,5 @@ google-generativeai
 openpyxl
 pillow
 openai
+pypdf
+requests
