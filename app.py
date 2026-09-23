@@ -103,7 +103,7 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "ABSORBICA", "VERTEX"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "ABSORBICA", "VERTEX"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V)'
@@ -310,8 +310,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     marca = partes[-2] if len(partes) >= 3 else "DESCONOCIDO"
                     descripcion = "GUANTE DIELÉCTRICO"
                 else:
-                    num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), partes[-1])
-                    marca = "PETZL" if "PETZL" in linea_str.upper() else ("ROCK EMPIRE" if "ROCK" in linea_str.upper() else "OTRA")
+                    num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)), partes[-1])
                     
                     texto_l_upper = linea_str.upper()
                     if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
@@ -320,6 +319,8 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                         descripcion = "CASCO"
                     elif "ESLINGA" in texto_l_upper:
                         descripcion = "ESLINGA"
+                    elif "POSICIONADOR" in texto_l_upper:
+                        descripcion = "POSICIONADOR"
                     elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper:
                         if "60" in texto_l_upper:
                             descripcion = "CINTA DE ANCLAJE 60"
@@ -332,7 +333,10 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                         else:
                             descripcion = "CINTA DE ANCLAJE"
                     else:
-                        descripcion = partes[0]
+                        palabras_desc = [p for p in partes if p != num_serie and not (len(p) >= 6 and any(c.isdigit() for c in p))]
+                        descripcion = " ".join(palabras_desc[:2]) if palabras_desc else partes[0]
+
+                    marca = "PETZL" if "PETZL" in linea_str.upper() else ("ROCK EMPIRE" if "ROCK" in linea_str.upper() else "OTRA")
 
                     modelo = "N/A"
                     for p_modelo in ["ABSORBICA", "VERTEX", "STRATO", "PAW", "OK", "AM'D", "VOLT"]:
