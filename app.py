@@ -14,16 +14,25 @@ st.set_page_config(
     layout="wide"
 )
 
+# Lista unificada y sin repeticiones para la app
 DEPARTAMENTOS = [
-    "PERSONAL 103", 
-    "PERSONAL 105", 
-    "PERSONAL 111", 
-    "PERSONAL 118", 
-    "PALAS",
-    "MANTENIMIENTO",
-    "REVISIÓN", 
+    "BASTIDOR 103",
+    "PALAS 105",
+    "MANTENIMIENTO 111",
+    "USA 118",
+    "REVISIÓN",
     "BAJAS"
 ]
+
+# Mapa de equivalencias para conectar lo que dice el Excel con la App
+MAPA_DEPARTAMENTOS = {
+    "BASTIDOR 103": ["103", "BASTIDOR", "PERSONAL 103"],
+    "PALAS 105": ["105", "PALAS", "PERSONAL 105"],
+    "MANTENIMIENTO 111": ["111", "MANTENIMIENTO", "PERSONAL 111"],
+    "USA 118": ["118", "USA", "PERSONAL 118"],
+    "REVISIÓN": ["REVISION", "REVISIÓN"],
+    "BAJAS": ["BAJA", "BAJAS"]
+}
 
 # ---------------------------------------------------------
 # CARGA Y NORMALIZACIÓN DE DATOS DESDE GOOGLE SHEETS
@@ -35,18 +44,29 @@ def normalizar_encabezado(texto):
     return texto.lower().strip()
 
 def coincide_departamento(val_celda, dep_seleccionado):
-    """Compara flexiblemente '105' con 'PERSONAL 105' o 'PALAS'"""
+    """Compara flexiblemente '105', 'PALAS' o 'PERSONAL 105' con 'PALAS 105'"""
     val_str = str(val_celda).upper().strip()
     dep_str = str(dep_seleccionado).upper().strip()
+    
     if not val_str or val_str == "NAN":
         return False
+        
     if val_str == dep_str:
         return True
-    # Extraer números si existen (ej. '105' dentro de 'PERSONAL 105')
+
+    # Buscar palabras clave del mapa de equivalencias
+    if dep_seleccionado in MAPA_DEPARTAMENTOS:
+        palabras_clave = MAPA_DEPARTAMENTOS[dep_seleccionado]
+        for kw in palabras_clave:
+            if kw in val_str:
+                return True
+
+    # Comparación de dígitos por seguridad (ej. '105' dentro de cualquier texto)
     nums_val = ''.join(filter(str.isdigit, val_str))
     nums_dep = ''.join(filter(str.isdigit, dep_str))
     if nums_val and nums_dep and nums_val == nums_dep:
         return True
+
     return val_str in dep_str or dep_str in val_str
 
 def cargar_hoja_csv(pestaña):
@@ -58,9 +78,7 @@ def cargar_hoja_csv(pestaña):
         df = pd.read_csv(url_csv)
         
         if not df.empty:
-            # Normalizar encabezados
             df.columns = [normalizar_encabezado(col) for col in df.columns]
-            # Eliminar columnas sin nombre
             df = df.loc[:, ~df.columns.str.startswith('unnamed')]
             
         return df.dropna(how="all")
@@ -98,7 +116,6 @@ with tab_dashboard:
             df_view = df_inv
             
         total_equipos = len(df_view)
-        
         col_estatus = next((c for c in df_view.columns if "estatus" in c or "estado" in c), None)
         
         if col_estatus:
@@ -165,7 +182,6 @@ with tab_registrar:
 with tab_inspeccion:
     st.header("📋 Inspección Pre-operacional en Campo")
     
-    # Intentamos leer la pestaña de INSPECCIONES o INVENTARIO
     df_insp_data = cargar_hoja_csv("INSPECCIONES")
     if df_insp_data.empty:
         df_insp_data = cargar_hoja_csv("INVENTARIO")
@@ -182,7 +198,6 @@ with tab_inspeccion:
         else:
             df_dep = df_insp_data
             
-        # Detectar la columna que contiene al equipo o personal (palas, serie, tecnico, personal)
         col_identificador = next((c for c in df_dep.columns if any(k in c for k in ["serie", "codigo", "palas", "personal", "tecnico", "descripcion"])), df_dep.columns[0] if not df_dep.empty else None)
         
         if df_dep.empty or not col_identificador:
