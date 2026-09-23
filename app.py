@@ -3,6 +3,10 @@ import pandas as pd
 import google.generativeai as genai
 import unicodedata
 import requests
+import zipfile
+import io
+import re
+import pypdf
 from datetime import date
 from openai import OpenAI
 
@@ -80,6 +84,68 @@ def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario="almacen
         return False
 
 # ---------------------------------------------------------
+# FUNCIONES DE LECTURA DE ACUSES PDF (.ZIP)
+# ---------------------------------------------------------
+def extraer_datos_de_acuse_pdf(stream_pdf):
+    """
+    Lee el texto de un PDF individual y extrae los campos seriables
+    sin importar si el texto está en MAYÚSCULAS o minúsculas.
+    """
+    try:
+        reader = pypdf.PdfReader(stream_pdf)
+        texto_pdf = ""
+        for page in reader.pages:
+            texto_pdf += page.extract_text() or ""
+        
+        # Búsquedas flexibles insensibles a mayúsculas/minúsculas
+        pattern_desc = re.search(r'(?:descripci[oó]n|equipo|elemento):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+        pattern_marca = re.search(r'(?:marca):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+        pattern_modelo = re.search(r'(?:modelo):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+        pattern_serie = re.search(r'(?:n[uú]mero de serie|n[o°]\.\s*serie|serie|s/n|c[oó]digo):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+        pattern_fecha = re.search(r'(?:fecha):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+        pattern_obs = re.search(r'(?:observacio?nes?|hallazgos|notas):\s*([^\n]+)', texto_pdf, re.IGNORECASE)
+
+        return {
+            "DESCRIPCIÓN": pattern_desc.group(1).strip() if pattern_desc else "NO DETECTADO",
+            "MARCA": pattern_marca.group(1).strip() if pattern_marca else "NO DETECTADO",
+            "MODELO": pattern_modelo.group(1).strip() if pattern_modelo else "NO DETECTADO",
+            "NÚMERO DE SERIE": pattern_serie.group(1).strip().upper() if pattern_serie else "NO DETECTADO",
+            "FECHA": pattern_fecha.group(1).strip() if pattern_fecha else "NO DETECTADO",
+            "OBSERVACIONES": pattern_obs.group(1).strip() if pattern_obs else "SIN OBSERVACIONES"
+        }
+    except Exception:
+        return None
+
+def procesar_paquete_zip(archivo_zip_subido):
+    """
+    Descomprime el ZIP en memoria, analiza cada PDF y genera un DataFrame consolidado.
+    """
+    registros = []
+    
+    with zipfile.ZipFile(archivo_zip_subido, 'r') as z:
+        archivos_pdf = [nombre for nombre in z.namelist() if nombre.lower().endswith('.pdf')]
+        
+        if not archivos_pdf:
+            return pd.DataFrame()
+
+        st.info(f"📦 Archivo ZIP detectado. Se encontraron **{len(archivos_pdf)}** acuses PDF para procesar.")
+        
+        progreso = st.progress(0)
+        
+        for idx, nombre_archivo in enumerate(archivos_pdf):
+            with z.open(nombre_archivo) as f_pdf:
+                pdf_stream = io.BytesIO(f_pdf.read())
+                datos_extraidos = extraer_datos_de_acuse_pdf(pdf_stream)
+                
+                if datos_extraidos:
+                    datos_extraidos["ARCHIVO_ORIGEN"] = nombre_archivo
+                    registros.append(datos_extraidos)
+            
+            progreso.progress((idx + 1) / len(archivos_pdf))
+            
+    return pd.DataFrame(registros)
+
+# ---------------------------------------------------------
 # CARGA Y NORMALIZACIÓN DE DATOS DESDE GOOGLE SHEETS
 # ---------------------------------------------------------
 def normalizar_encabezado(texto):
@@ -135,12 +201,13 @@ def cargar_hoja_csv(pestaña):
 # ---------------------------------------------------------
 st.title("🛡️ Sistema de Gestión EPP e Inspecciones")
 
-tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia = st.tabs([
+tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = st.tabs([
     "📊 Dashboard", 
     "➕ Registrar Equipo", 
     "📋 Inspección Pre-operacional", 
     "📜 Historial de Inspecciones", 
-    "🤖 Asistente IA"
+    "🤖 Asistente IA",
+    "📂 Lectura de PDFs (.ZIP)"
 ])
 
 # ---------------------------------------------------------
@@ -400,3 +467,36 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
                                 st.error("❌ No se pudo conectar con Gemini.")
                 except Exception as e:
                     st.error(f"Error al conectar con Gemini: {e}")
+
+# ---------------------------------------------------------
+# 6. LECTURA Y PROCESAMIENTO MASIVO DE PDFS (.ZIP)
+# ---------------------------------------------------------
+with tab_zip:
+    st.header("📂 Procesamiento Masivo de Acuses EPI / Fichas Técnicas")
+    st.caption("Sube carpetas comprimidas (.ZIP) de áreas como 111, 103, 118 o Palas para extraer automáticamente los datos seriables de cada acuse PDF.")
+    
+    zip_cargado = st.file_uploader(
+        "Selecciona el archivo ZIP con los Acuses (PDFs):", 
+        type=["zip"],
+        key="uploader_zip_acuses"
+    )
+
+    if zip_cargado:
+        if st.button("🚀 Leer y Consolidar Datos"):
+            with st.spinner("Descomprimiendo en memoria y analizando PDFs..."):
+                df_resultado = procesar_paquete_zip(zip_cargado)
+                
+                if not df_resultado.empty:
+                    st.success(f"✅ ¡Procesamiento completado! Se leyeron {len(df_resultado)} acuses con éxito.")
+                    st.dataframe(df_resultado, use_container_width=True)
+                    
+                    # Botón para descargar la tabla consolidada en CSV
+                    csv_data = df_resultado.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Descargar Tabla Extraída (CSV)",
+                        data=csv_data,
+                        file_name="Acuses_EPI_Consolidado.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.error("No se encontraron archivos PDF legibles o texto dentro del ZIP.")
