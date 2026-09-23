@@ -155,19 +155,20 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CON DEBUGS)
+# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CORREGIDO Y CON DEBUG)
 # ---------------------------------------------------------
 def enviar_datos_a_apps_script(df_nuevos):
     try:
         df_limpio = df_nuevos.fillna("").astype(str)
         registros = df_limpio.to_dict(orient="records")
         
-        response = requests.post(APPS_SCRIPT_URL, json=registros, timeout=30)
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(APPS_SCRIPT_URL, json=registros, headers=headers, timeout=30)
         
-        # Muestra en pantalla la respuesta exacta que devuelve Google
-        st.info(f"Respuesta de Google Apps Script: [Código {response.status_code}] {response.text}")
+        # Muestra en pantalla el resultado exacto de la petición HTTP
+        st.info(f"🔍 Respuesta exacta de Google Apps Script: [Código {response.status_code}] `{response.text}`")
         
-        if response.status_code == 200:
+        if response.status_code == 200 and ("exito" in response.text.lower() or "success" in response.text.lower()):
             return True
         else:
             return False
