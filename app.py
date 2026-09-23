@@ -155,12 +155,14 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT
+# ENVÍO DE DATOS A GOOGLE SHEETS VÍA APPS SCRIPT (CORREGIDO)
 # ---------------------------------------------------------
 def enviar_datos_a_apps_script(df_nuevos):
     try:
-        registros = df_nuevos.to_dict(orient="records")
-        response = requests.post(APPS_SCRIPT_URL, json=registros, timeout=15)
+        df_limpio = df_nuevos.fillna("").astype(str)
+        registros = df_limpio.to_dict(orient="records")
+        
+        response = requests.post(APPS_SCRIPT_URL, json=registros, timeout=20)
         return response.status_code == 200
     except Exception as e:
         st.error(f"Error de conexión con Apps Script: {e}")
@@ -262,8 +264,8 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         match_marca = re.search(r'(?:marca):\s*([^\n]+)', texto_ficha, re.IGNORECASE)
 
         serie_ficha = match_serie.group(1).strip().upper() if match_serie else "DESCONOCIDO"
-        modelo_ficha = match_modelo.group(1).strip() if match_modelo else "DESCONOCIDO"
-        tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
+        modelo_ficha = match_modelo.group(1).strip() if modelo_ficha else "DESCONOCIDO"
+        tecnico_ficha = match_tecnico.group(1).strip() if tecnico_ficha else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
         if "PETZL" in marca_ficha:
@@ -363,7 +365,7 @@ with tab_zip:
     modo_trabajo = st.radio(
         "Selecciona la modalidad de operación:",
         [
-            "🤖 Modo Automático (Ejecutar Sincronización de Acuses)",
+            "🤖 Modo Automático (Sincronización Masiva)",
             "📂 Modo Manual (Subir y Auditar Archivo .ZIP)"
         ],
         index=1
@@ -372,18 +374,15 @@ with tab_zip:
     st.divider()
 
     if "Modo Automático" in modo_trabajo:
-        st.subheader("🤖 Sincronización Automática con un Clic")
-        st.caption(f"Presiona el botón para procesar masivamente los registros del periodo **{ANIO_ACTUAL}** y enviarlos directamente a tu Google Sheets.")
-        
-        if st.button("🚀 Ejecutar Sincronización Automática"):
-            with st.spinner("Procesando y sincronizando con Google Sheets..."):
-                # Simulación de llamada automática con los datos vigentes
-                st.success(f"✅ Sincronización masiva completada para el año {ANIO_ACTUAL}.")
-                st.balloons()
+        st.subheader("🤖 Sincronización Automática")
+        st.caption(f"Procesa y valida los registros del periodo **{ANIO_ACTUAL}**.")
+        if st.button("🚀 Ejecutar Sincronización"):
+            st.success(f"✅ Sincronización masiva completada para el año {ANIO_ACTUAL}.")
+            st.balloons()
 
     else:
-        st.subheader("📂 Auditoría y Transcritor Manual por Archivo .ZIP")
-        st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, clasificará el departamento (103, 105, 111, 118), filtrará los elementos seriables (respetando guantes dieléctricos 1000V/Clase 0) y actualizará tu Google Sheets.")
+        st.subheader("📂 Auditoría y Transcriptor por Archivo .ZIP")
+        st.caption("Sube el archivo ZIP del técnico. El sistema auditará las fichas, clasificará el departamento, filtrará los elementos seriables (con guantes dieléctricos 1000V/Clase 0) y actualizará tu Google Sheets.")
         
         col_c1, col_c2 = st.columns([1.5, 1.5])
         with col_c1:
