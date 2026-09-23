@@ -17,6 +17,7 @@ st.set_page_config(
 DEPARTAMENTOS = [
     "PERSONAL 103", 
     "PERSONAL 105", 
+    "PERSONAL 111", 
     "PERSONAL 118", 
     "REVISIÓN", 
     "BAJAS"
