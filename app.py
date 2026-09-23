@@ -42,6 +42,11 @@ MAPA_DEPARTAMENTOS = {
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 
+# Configuración de la IA (Gemini API Key desde Streamlit Secrets)
+api_key_gemini = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+if api_key_gemini:
+    genai.configure(api_key=api_key_gemini)
+
 # ---------------------------------------------------------
 # FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIÓN DE GUANTES 1000V / CLASE 0
 # ---------------------------------------------------------
@@ -313,7 +318,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
     return tecnico_master, pd.DataFrame(registros_inventario), pd.DataFrame(reporte_correcto), lista_errores
 
 # ---------------------------------------------------------
-# INTERFAZ PRINCIPAL CON TODAS LAS PESTAÑAS RESTAURADAS
+# INTERFAZ PRINCIPAL
 # ---------------------------------------------------------
 st.title("🛡️ Sistema de Gestión EPP e Inspecciones")
 
@@ -376,14 +381,20 @@ with tab_historial:
     st.info("No hay registros históricos recientes para mostrar en este momento.")
 
 with tab_ia:
-    st.header("🤖 Asistente Técnico en Seguridad Industrial y EPP")
-    st.write("Realiza consultas técnicas sobre normas (NOM-017-STPS, NFPA 70E), especificaciones de equipos (Petzl, Rock Empire) o procedimientos QEHS/SGI.")
+    st.header("🤖 Asistente Técnico y General")
+    st.write("Puedes realizar consultas técnicas sobre seguridad industrial (NOM-017-STPS, NFPA 70E, equipos Petzl) o plantear cualquier otro tema de conversación de manera libre e interactiva.")
     
-    pregunta_ia = st.text_input("Escribe tu consulta técnica:")
+    pregunta_ia = st.text_input("Escribe tu consulta o mensaje:")
     if pregunta_ia:
-        with st.spinner("Analizando consulta con IA..."):
-            # Respuesta simulada o integrada con Gemini si está configurada
-            st.info(f"💡 **Respuesta del Asistente:** Para tu consulta sobre *'{pregunta_ia}'*, recuerda verificar siempre la conformidad con las normativas vigentes aplicables en tu centro de trabajo y los manuales de inspección del fabricante.")
+        with st.spinner("Generando respuesta..."):
+            try:
+                # Utiliza Gemini de forma libre e interactiva para cualquier tema
+                modelo_ia = genai.GenerativeModel("gemini-1.5-flash")
+                respuesta = modelo_ia.generate_content(pregunta_ia)
+                st.markdown(f"### Respuesta:")
+                st.write(respuesta.text)
+            except Exception as e:
+                st.error(f"⚠️ No se pudo conectar con el servicio de IA: {e}")
 
 # 6. PESTAÑA DE AUDITORÍA Y DESCARGA DIRECTA
 with tab_zip:
