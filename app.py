@@ -209,11 +209,11 @@ with tab_historial:
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
  # ---------------------------------------------------------
-# 5. ASISTENTE IA (NOM-017-STPS-2024 + ESPAÑOL OBLIGATORIO)
+# 5. ASISTENTE IA (RESPUESTA RÁPIDA + ESPAÑOL STRICTO + MARCO JURÍDICO DINÁMICO)
 # ---------------------------------------------------------
 with tab_ia:
-    st.header("🤖 Asistente Inteligente y Consultor Técnico")
-    st.caption("Consulta sobre la norma NOM-017-STPS-2024, criterios de rechazo de EPP, soporte en Excel, redacción de informes o cualquier duda general.")
+    st.header("🤖 Asistente Técnico en Seguridad Industrial y EPP")
+    st.caption("Consultor automático adaptado al Marco Jurídico Mexicano vigente (STPS), Normas Oficiales (NOMs), normatividad internacional (OSHA, ANSI, NFPA), soporte en Excel y consultas generales.")
     
     pregunta = st.text_input("Escribe tu consulta:")
     
@@ -226,47 +226,60 @@ with tab_ia:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
                     
                     prompt = f"""
-REGLA DE IDIOMA OBLIGATORIA:
-- Debes responder SIEMPRE Y ÚNICAMENTE EN ESPAÑOL, a menos que el usuario en su consulta te solicite explícitamente responder en otro idioma.
+REGLA STRICTA DE IDIOMA:
+- RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
+- Queda estrictamente prohibido incluir introducciones, prefijos, saludos, notas o comentarios en inglés u otros idiomas.
 
-ROL Y REGLAS NORMATIVAS TÉCNICAS:
-1. Eres un Ingeniero especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP de Altura en México.
-2. Fundamenta tus respuestas normativas estrictamente bajo la versión vigente **NOM-017-STPS-2024** ("Equipo de protección personal - Selección, uso y manejo en los centros de trabajo"), dejando sin efecto los criterios obsoletos de la versión previa de 2008.
-3. Considera los ejes clave de la NOM-017-STPS-2024:
-   - Análisis de riesgo por puesto de trabajo y actividad específica.
-   - Determinación del ciclo de vida útil del EPP y criterios obligatorios para su baja / disposición final.
-   - Evaluación de la compatibilidad cuando se utiliza más de un EPP simultáneamente (ej. casco + barbiquejo + arnés).
-   - Obligación de capacitación teórica-práctica para los trabajadores.
-   - Referencias a normas internacionales vigentes (ANSI, EN, OSHA, NFPA) cuando aplique a equipos de altitud.
-4. Si el usuario realiza una pregunta general (fórmulas o macros de Excel, redacción de informes, procesos, etc.), respóndela en español con la misma claridad, estructura y precisión.
+MARCO JURÍDICO Y NORMATIVO DINÁMICO:
+1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
+2. Aplica automáticamente el Marco Jurídico Mexicano vigente en materia de Seguridad y Salud en el Trabajo (Ley Federal del Trabajo, Reglamento Federal de SST y las Normas Oficiales Mexicanas de la STPS en sus versiones más recientes y actualizadas a la fecha, incluyendo NOM-017-STPS, NOM-009-STPS, NOM-031-STPS, etc.).
+3. Identifica e integra de forma autónoma la Norma Oficial Mexicana vigente que aplique a la consulta del usuario, sin necesidad de que el usuario especifique la norma, la clave o el año.
+4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) cuando aporte rigor técnico.
+5. Para consultas de ámbito general (fórmulas o macros de Excel, redacción de reportes técnicos, gestión operativa), responde directamente con el mismo rigor, claridad y estructura en español.
 
 Consulta del usuario: {pregunta}
 """
                     
+                    # Modelos ultra rápidos en orden de prioridad (sin llamadas lentas a list_models)
+                    modelos_rapidos = [
+                        'gemini-2.5-flash',
+                        'gemini-2.0-flash',
+                        'gemini-1.5-flash'
+                    ]
+                    
                     response = None
                     modelo_usado = None
                     
-                    with st.spinner("Procesando consulta en español con la IA..."):
-                        # Obtener automáticamente los modelos activos
-                        modelos_disponibles = [
-                            m.name for m in genai.list_models() 
-                            if 'generateContent' in m.supported_generation_methods
-                        ]
-                        
-                        # Probar modelos disponibles en orden
-                        for mod_name in modelos_disponibles:
+                    with st.spinner("Generando respuesta técnica en español..."):
+                        # Intento directo de alta velocidad
+                        for mod_name in modelos_rapidos:
                             try:
                                 model = genai.GenerativeModel(mod_name)
                                 response = model.generate_content(prompt)
-                                modelo_usado = mod_name.replace("models/", "")
+                                modelo_usado = mod_name
                                 break
                             except Exception:
                                 continue
                         
+                        # Respaldo secundario por si los modelos principales fallan
+                        if not response:
+                            try:
+                                for m in genai.list_models():
+                                    if 'generateContent' in m.supported_generation_methods:
+                                        try:
+                                            model = genai.GenerativeModel(m.name)
+                                            response = model.generate_content(prompt)
+                                            modelo_usado = m.name.replace("models/", "")
+                                            break
+                                        except Exception:
+                                            continue
+                            except Exception:
+                                pass
+                        
                         if response and hasattr(response, 'text'):
                             st.markdown(response.text)
-                            st.caption(f"🤖 *Respuesta generada por el modelo activo: `{modelo_usado}`*")
+                            st.caption(f"🤖 *Respuesta rápida generada por: `{modelo_usado}`*")
                         else:
-                            st.error("❌ No se encontró ningún modelo activo o la clave 'GEMINI_API_KEY' en Secrets no es válida.")
+                            st.error("❌ No se pudo conectar con los modelos de Gemini. Verifica tu clave 'GEMINI_API_KEY' en Secrets.")
             except Exception as e:
                 st.error(f"Error al procesar la consulta: {e}")
