@@ -208,27 +208,34 @@ with tab_historial:
         st.dataframe(df_insp_view, use_container_width=True)
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
- # ---------------------------------------------------------
-# 5. ASISTENTE IA (RESPUESTA RÁPIDA + ESPAÑOL STRICTO + MARCO JURÍDICO DINÁMICO)
+ from openai import OpenAI
+
+# ---------------------------------------------------------
+# 5. ASISTENTE IA (DUAL: DEEPSEEK + GOOGLE GEMINI)
 # ---------------------------------------------------------
 with tab_ia:
     st.header("🤖 Asistente Técnico en Seguridad Industrial y EPP")
     st.caption("Consultor automático adaptado al Marco Jurídico Mexicano vigente (STPS), Normas Oficiales (NOMs), normatividad internacional (OSHA, ANSI, NFPA), soporte en Excel y consultas generales.")
     
+    col_motor, col_dummy = st.columns([1.5, 1.5])
+    with col_motor:
+        motor_ia = st.radio(
+            "Selecciona el motor de IA:",
+            [
+                "🚀 DeepSeek (DeepSeek-V3 - Rápido y Racional)", 
+                "🌐 Gemini (Google)"
+            ],
+            index=0
+        )
+    
     pregunta = st.text_input("Escribe tu consulta:")
     
     if st.button("🔍 Consultar IA"):
         if pregunta:
-            try:
-                if "GEMINI_API_KEY" not in st.secrets:
-                    st.error("❌ Falta la clave 'GEMINI_API_KEY' en los Secrets de Streamlit.")
-                else:
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
-                    
-                    prompt = f"""
-REGLA STRICTA DE IDIOMA:
+            prompt_sistema = """
+REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda estrictamente prohibido incluir introducciones, prefijos, saludos, notas o comentarios en inglés u otros idiomas.
+- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
@@ -236,50 +243,65 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 3. Identifica e integra de forma autónoma la Norma Oficial Mexicana vigente que aplique a la consulta del usuario, sin necesidad de que el usuario especifique la norma, la clave o el año.
 4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) cuando aporte rigor técnico.
 5. Para consultas de ámbito general (fórmulas o macros de Excel, redacción de reportes técnicos, gestión operativa), responde directamente con el mismo rigor, claridad y estructura en español.
-
-Consulta del usuario: {pregunta}
 """
-                    
-                    # Modelos ultra rápidos en orden de prioridad (sin llamadas lentas a list_models)
-                    modelos_rapidos = [
-                        'gemini-2.5-flash',
-                        'gemini-2.0-flash',
-                        'gemini-1.5-flash'
-                    ]
-                    
-                    response = None
-                    modelo_usado = None
-                    
-                    with st.spinner("Generando respuesta técnica en español..."):
-                        # Intento directo de alta velocidad
-                        for mod_name in modelos_rapidos:
-                            try:
-                                model = genai.GenerativeModel(mod_name)
-                                response = model.generate_content(prompt)
-                                modelo_usado = mod_name
-                                break
-                            except Exception:
-                                continue
+            # ---------------------------------------------------------
+            # OPCIÓN 1: DEEPSEEK (V3)
+            # ---------------------------------------------------------
+            if "DeepSeek" in motor_ia:
+                try:
+                    if "DEEPSEEK_API_KEY" not in st.secrets:
+                        st.error("❌ Falta la clave 'DEEPSEEK_API_KEY' en los Secrets de Streamlit.")
+                    else:
+                        client_ds = OpenAI(
+                            api_key=st.secrets["DEEPSEEK_API_KEY"].strip(),
+                            base_url="https://api.deepseek.com"
+                        )
                         
-                        # Respaldo secundario por si los modelos principales fallan
-                        if not response:
-                            try:
-                                for m in genai.list_models():
-                                    if 'generateContent' in m.supported_generation_methods:
-                                        try:
-                                            model = genai.GenerativeModel(m.name)
-                                            response = model.generate_content(prompt)
-                                            modelo_usado = m.name.replace("models/", "")
-                                            break
-                                        except Exception:
-                                            continue
-                            except Exception:
-                                pass
+                        with st.spinner("🚀 Generando respuesta técnica con DeepSeek..."):
+                            response = client_ds.chat.completions.create(
+                                model="deepseek-chat",
+                                messages=[
+                                    {"role": "system", "content": prompt_sistema},
+                                    {"role": "user", "content": pregunta}
+                                ],
+                                temperature=0.3
+                            )
+                            
+                            texto_respuesta = response.choices[0].message.content
+                            st.markdown(texto_respuesta)
+                            st.caption("🤖 *Respuesta generada por: `DeepSeek-V3 (deepseek-chat)`*")
+                except Exception as e:
+                    st.error(f"Error al conectar con DeepSeek: {e}")
+
+            # ---------------------------------------------------------
+            # OPCIÓN 2: GEMINI (GOOGLE)
+            # ---------------------------------------------------------
+            else:
+                try:
+                    if "GEMINI_API_KEY" not in st.secrets:
+                        st.error("❌ Falta la clave 'GEMINI_API_KEY' en los Secrets de Streamlit.")
+                    else:
+                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
+                        prompt_full = f"{prompt_sistema}\n\nConsulta del usuario: {pregunta}"
                         
-                        if response and hasattr(response, 'text'):
-                            st.markdown(response.text)
-                            st.caption(f"🤖 *Respuesta rápida generada por: `{modelo_usado}`*")
-                        else:
-                            st.error("❌ No se pudo conectar con los modelos de Gemini. Verifica tu clave 'GEMINI_API_KEY' en Secrets.")
-            except Exception as e:
-                st.error(f"Error al procesar la consulta: {e}")
+                        response = None
+                        modelo_usado = None
+                        
+                        with st.spinner("Generando respuesta con Google Gemini..."):
+                            modelos_rapidos = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+                            for mod_name in modelos_rapidos:
+                                try:
+                                    model = genai.GenerativeModel(mod_name)
+                                    response = model.generate_content(prompt_full)
+                                    modelo_usado = mod_name
+                                    break
+                                except Exception:
+                                    continue
+                            
+                            if response and hasattr(response, 'text'):
+                                st.markdown(response.text)
+                                st.caption(f"🤖 *Respuesta generada por: `{modelo_usado}`*")
+                            else:
+                                st.error("❌ No se pudo conectar con Gemini.")
+                except Exception as e:
+                    st.error(f"Error al conectar con Gemini: {e}")
