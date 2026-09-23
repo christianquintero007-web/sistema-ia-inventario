@@ -92,20 +92,34 @@ elif password_ingresada != "":
     st.sidebar.error("❌ Contraseña incorrecta")
 
 # ---------------------------------------------------------
-# FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIÓN DE GUANTES 1000V / CLASE 0
+# FILTRO ESTRICTO DE ELEMENTOS VÁLIDOS (SOLO EQUIPOS SERIABLES)
 # ---------------------------------------------------------
 def es_item_valido_o_excepcion(linea_texto):
     texto_upper = linea_texto.upper()
 
-    if any(k in texto_upper for k in ["WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09", "FIRMA", "RECIBE"]):
+    palabras_prohibidas = [
+        "WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09", "FIRMA", 
+        "RECIBE", "NOMBRE", "FECHA", "ITEM", "TALLA", "OBSERVACIONES", 
+        "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE"
+    ]
+    if any(p == texto_upper or (len(texto_upper.split()) == 1 and texto_upper in palabras_prohibidas) for p in palabras_prohibidas):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V)'
     if re.search(patron_guantes_dielectricos, texto_upper):
         return True, True
 
-    tiene_serie = bool(re.search(r'[A-Z0-9]{5,20}', texto_upper))
-    return tiene_serie, False
+    match_serie_candidata = re.search(r'\b([A-Z0-9\-]{5,25})\b', texto_upper)
+    if not match_serie_candidata:
+        return False, False
+
+    posible_serie = match_serie_candidata.group(1)
+    
+    palabras_invalidas_serie = ["DESCONOCIDO", "PETZL", "ROCK", "EMPIRE", "ARNÉS", "CASCO", "ESLINGA", "CINTA"]
+    if posible_serie in palabras_invalidas_serie:
+        return False, False
+
+    return True, False
 
 # ---------------------------------------------------------
 # DETECTOR AUTOMÁTICO DE DEPARTAMENTO
@@ -280,16 +294,43 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 
         if es_valido:
             partes = linea_str.split()
-            if len(partes) >= 1:
+            if len(partes) >= 2:
                 if es_excepcion_guante:
                     num_serie = "SIN SERIE (DIELÉCTRICO)"
                     modelo = "CLASE 0 / 1000V"
                     marca = partes[-2] if len(partes) >= 3 else "DESCONOCIDO"
+                    descripcion = "GUANTE DIELÉCTRICO"
                 else:
-                    num_serie = partes[1] if len(partes) > 1 else partes[0]
-                    modelo = partes[-2] if len(partes) >= 3 else "N/A"
-                    marca = "PETZL" if "PETZL" in linea_str.upper() else "OTRA"
-                
+                    num_serie = partes[-1] if len(partes[-1]) >= 5 else (partes[1] if len(partes) > 1 else partes[0])
+                    marca = "PETZL" if "PETZL" in linea_str.upper() else ("ROCK EMPIRE" if "ROCK" in linea_str.upper() else "OTRA")
+                    
+                    texto_l_upper = linea_str.upper()
+                    if "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper:
+                        descripcion = "ARNÉS"
+                    elif "CASCO" in texto_l_upper:
+                        descripcion = "CASCO"
+                    elif "ESLINGA" in texto_l_upper:
+                        descripcion = "ESLINGA"
+                    elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper:
+                        if "60" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE 60"
+                        elif "80" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE 80"
+                        elif "120" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE 120"
+                        elif "150" in texto_l_upper:
+                            descripcion = "CINTA DE ANCLAJE 150"
+                        else:
+                            descripcion = "CINTA DE ANCLAJE"
+                    else:
+                        descripcion = partes[0]
+
+                    modelo = "N/A"
+                    for p_modelo in ["ABSORBICA", "VERTEX", "STRATO", "PAW", "OK", "AM'D", "VOLT"]:
+                        if p_modelo in texto_l_upper:
+                            modelo = p_modelo
+                            break
+
                 items_master.append({
                     "raw_line": linea_str,
                     "serie": num_serie,
@@ -302,7 +343,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 
                 registros_inventario.append({
                     "DEPARTAMENTO": departamento_auto,
-                    "DESCRIPCIÓN": partes[0] if len(partes) > 0 else "EQUIPO EPP",
+                    "DESCRIPCIÓN": descripcion,
                     "MARCA": marca,
                     "MODELO": modelo,
                     "NÚMERO DE SERIE": num_serie,
