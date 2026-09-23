@@ -3,8 +3,11 @@ import pandas as pd
 import google.generativeai as genai
 import unicodedata
 from datetime import date
+from openai import OpenAI
 
-# Configuración de página
+# ---------------------------------------------------------
+# CONFIGURACIÓN INICIAL Y DEPARTAMENTOS
+# ---------------------------------------------------------
 st.set_page_config(
     page_title="Sistema de Inventario e Inspecciones EPP", 
     page_icon="🛡️", 
@@ -107,14 +110,14 @@ with tab_registrar:
         col1, col2 = st.columns(2)
         with col1:
             departamento = st.selectbox("DEPARTAMENTO", DEPARTAMENTOS)
-            descripcion = st.text_input("DESCRIPCIÓN", placeholder="ej. Arnés de Seguridad / Casco").strip()
+            descripcion = st.text_input("DESCRIPCIÓN", placeholder="ej. Arnés de Cuerpos Entero / Casco").strip()
             marca = st.text_input("MARCA", placeholder="ej. Rock Empire, Petzl").strip()
             modelo = st.text_input("MODELO", placeholder="ej. Atlas Lock Al Belt").strip()
         with col2:
             num_serie = st.text_input("NÚMERO DE SERIE / CÓDIGO", placeholder="ej. 24CUA900009").strip().upper()
             factura_oc = st.text_input("FACTURA / OC", placeholder="ej. F-1234 / OC-5678").strip()
             fecha_estatus = st.date_input("FECHA DE ESTATUS / INGRESO")
-            tecnico_resp = st.text_input("TÉCNICO / RESPONSABLE ASIGNADO", placeholder="ej. Juan Pérez / Téc. Mantenimiento").strip()
+            tecnico_resp = st.text_input("TÉCNICO / RESPONSABLE ASIGNADO", placeholder="ej. Juan Pérez").strip()
             
         motivo_registro = st.selectbox("TIPO DE REGISTRO / CONDICIÓN", [
             "Ingreso de equipo nuevo", 
@@ -123,19 +126,18 @@ with tab_registrar:
             "Otro"
         ])
         
-        obs_adicionales = st.text_area("DETALLES / OBSERVACIONES ADICIONALES", placeholder="Escribe notas adicionales sobre la entrega o estado...")
+        obs_adicionales = st.text_area("DETALLES / OBSERVACIONES ADICIONALES", placeholder="Escribe notas adicionales...")
         btn_guardar = st.form_submit_button("💾 Registrar Equipo")
         
         if btn_guardar:
             if num_serie and marca:
-                # Combinar responsable, tipo de registro y observaciones para la celda OBSERVACIONES
                 obs_final = f"Téc: {tecnico_resp if tecnico_resp else 'N/A'} | {motivo_registro}"
                 if obs_adicionales:
                     obs_final += f" | {obs_adicionales}"
                     
                 st.success(f"✅ Registro completado para el equipo **{num_serie}** ({descripcion})")
                 st.markdown(f"**Observación generada para Google Sheets:** `{obs_final}`")
-                st.info("💡 Recuerda que al hacer clic en **Datos > Actualizar todo** en Excel, se descargará automáticamente.")
+                st.info("💡 Recuerda que al hacer clic en 'Datos > Actualizar todo' en Excel, se descargará automáticamente.")
             else:
                 st.warning("⚠️ Completa al menos el NÚMERO DE SERIE y la MARCA.")
 
@@ -208,7 +210,6 @@ with tab_historial:
         st.dataframe(df_insp_view, use_container_width=True)
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
- from openai import OpenAI
 
 # ---------------------------------------------------------
 # 5. ASISTENTE IA (DUAL: DEEPSEEK + GOOGLE GEMINI)
@@ -235,7 +236,7 @@ with tab_ia:
             prompt_sistema = """
 REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
+- Queda strictly prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
