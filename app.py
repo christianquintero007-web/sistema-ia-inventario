@@ -42,11 +42,6 @@ MAPA_DEPARTAMENTOS = {
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 
-# Configuración de la IA (Gemini API Key desde Streamlit Secrets)
-api_key_gemini = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-if api_key_gemini:
-    genai.configure(api_key=api_key_gemini)
-
 # ---------------------------------------------------------
 # FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIÓN DE GUANTES 1000V / CLASE 0
 # ---------------------------------------------------------
@@ -327,7 +322,7 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = s
     "➕ Registrar Equipo", 
     "📋 Inspección Pre-operacional", 
     "📜 Historial de Inspecciones", 
-    "🤖 Asistente IA",
+    "🤖 Asistente IA (DeepSeek)",
     "📂 Automatización y Fichas"
 ])
 
@@ -381,20 +376,35 @@ with tab_historial:
     st.info("No hay registros históricos recientes para mostrar en este momento.")
 
 with tab_ia:
-    st.header("🤖 Asistente Técnico y General")
-    st.write("Puedes realizar consultas técnicas sobre seguridad industrial (NOM-017-STPS, NFPA 70E, equipos Petzl) o plantear cualquier otro tema de conversación de manera libre e interactiva.")
+    st.header("🤖 Asistente IA (DeepSeek)")
+    st.write("Asistente interactivo libre. Puedes consultar cualquier tema técnico, de seguridad industrial, programación o conversar de manera completamente abierta.")
     
-    pregunta_ia = st.text_input("Escribe tu consulta o mensaje:")
+    pregunta_ia = st.text_input("Escribe tu consulta o mensaje para DeepSeek:")
     if pregunta_ia:
-        with st.spinner("Generando respuesta..."):
+        with st.spinner("Generando respuesta con DeepSeek..."):
             try:
-                # Utiliza Gemini de forma libre e interactiva para cualquier tema
-                modelo_ia = genai.GenerativeModel("gemini-1.5-flash")
-                respuesta = modelo_ia.generate_content(pregunta_ia)
-                st.markdown(f"### Respuesta:")
-                st.write(respuesta.text)
+                # Conexión con DeepSeek usando el cliente de OpenAI (compatible con su API)
+                deepseek_key = st.secrets.get("DEEPSEEK_API_KEY")
+                if not deepseek_key:
+                    st.error("⚠️ Falta configurar la clave `DEEPSEEK_API_KEY` en los secretos de Streamlit.")
+                else:
+                    client = OpenAI(
+                        api_key=deepseek_key,
+                        base_url="https://api.deepseek.com"
+                    )
+                    response = client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[
+                            {"role": "system", "content": "Eres un asistente técnico experto en seguridad industrial, normativas y gestión general."},
+                            {"role": "user", "content": pregunta_ia},
+                        ],
+                        stream=False
+                    )
+                    texto_respuesta = response.choices[0].message.content
+                    st.markdown(### Respuesta:)
+                    st.write(texto_respuesta)
             except Exception as e:
-                st.error(f"⚠️ No se pudo conectar con el servicio de IA: {e}")
+                st.error(f"❌ Error al conectar con DeepSeek: {e}")
 
 # 6. PESTAÑA DE AUDITORÍA Y DESCARGA DIRECTA
 with tab_zip:
