@@ -289,7 +289,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (FLEXIBLE)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -306,7 +306,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
     master_acuse_texto = ""
     master_filename = ""
 
-    # Extraer nombre del técnico desde el nombre del archivo ZIP como respaldo infalible
     nombre_zip_limpio = archivo_zip_subido.name.replace(".zip", "").replace("_", " ").replace("-", " ").upper()
 
     with zipfile.ZipFile(archivo_zip_subido, 'r') as z:
@@ -320,9 +319,16 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                 texto = extraer_datos_pdf_individual(stream)
                 fichas_pdf[nombre] = texto
                 
-                if any(k in nombre.lower() for k in ["fo-09", "fo09", "entrega de epi", "entrega epi"]) or "ENTREGA EPI" in texto.upper():
-                    master_acuse_texto = texto
-                    master_filename = nombre
+                nombre_l = nombre.lower()
+                texto_u = texto.upper()
+                if any(k in nombre_l for k in ["fo-09", "fo09", "copia", "entrega"]) or any(k in texto_u for k in ["ENTREGA EPI", "FO-09", "FO09"]):
+                    if not master_acuse_texto:
+                        master_acuse_texto = texto
+                        master_filename = nombre
+
+    if not master_acuse_texto and archivos_pdf:
+        master_filename = archivos_pdf[0]
+        master_acuse_texto = fichas_pdf[master_filename]
 
     departamento_auto = determinar_departamento_automatico(master_acuse_texto)
     
@@ -354,7 +360,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     
                     texto_l_upper = linea_str.upper()
                     
-                    # Detección inteligente de Marca por nomenclatura de serie o texto
                     if re.match(r'^[0-9]{2}[A-L]', num_serie) or "PETZL" in texto_l_upper:
                         marca = "PETZL"
                     elif "CUA" in num_serie or "ROCK" in texto_l_upper or "CATCH" in texto_l_upper:
@@ -366,7 +371,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     else:
                         marca = "OTRA"
 
-                    # Detección de Modelo y Descripción
                     modelo = "N/A"
                     descripcion = "EQUIPO EPP"
 
@@ -398,7 +402,10 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                 })
 
                 es_nuevo = "NUEVO" in linea_str.upper()
-                obs_formateada = f"(NUEVO) {tecnico_master}" if es_nuevo else tecnico_master
+                if es_nuevo:
+                    obs_formateada = f"(NUEVO) {tecnico_master}"
+                else:
+                    obs_formateada = tecnico_master
 
                 registros_inventario.append({
                     "DEPARTAMENTO": departamento_auto,
@@ -449,13 +456,16 @@ if not sistema_activo:
     st.warning("⚠️ **SISTEMA INHABILITADO:** El administrador ha pausado temporalmente las operaciones y la sincronización con Excel.")
     st.stop()
 
+# ---------------------------------------------------------
+# PESTAÑAS CON NÚMEROS Y NOMBRES CLAROS
+# ---------------------------------------------------------
 tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = st.tabs([
-    "📊 Dashboard", 
-    "➕ Registrar Equipo", 
-    "📋 Inspección Pre-operacional", 
-    "📜 Historial de Inspecciones", 
-    "🤖 Asistente IA (DeepSeek)",
-    "📂 Automatización y Fichas"
+    "1️⃣ Dashboard", 
+    "2️⃣ Registrar Equipo", 
+    "3️⃣ Inspección Pre-operacional", 
+    "4️⃣ Historial de Inspecciones", 
+    "5️⃣ Asistente IA",
+    "6️⃣ Automatización y Fichas"
 ])
 
 with tab_dashboard:
