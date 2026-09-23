@@ -42,10 +42,14 @@ MAPA_DEPARTAMENTOS = {
     "BAJAS": ["BAJA", "BAJAS"]
 }
 
+# CORREOS PREDETERMINADOS DEL SISTEMA
+CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
+CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
+
 # ---------------------------------------------------------
 # ALERTAS VÍA POWER AUTOMATE
 # ---------------------------------------------------------
-def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario="almacen@windsunmx.com", detalles_adicionales=""):
+def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario=CORREO_NOTIFICACION_PRINCIPAL, detalles_adicionales=""):
     webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
     if not webhook_url:
         st.error("⚠️ No se encontró la variable 'POWER_AUTOMATE_URL' en los Secrets de Streamlit.")
@@ -76,9 +80,9 @@ def enviar_alerta_power_automate(tecnico, equipo, estatus, destinatario="almacen
     except Exception:
         return False
 
-def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion):
+def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=CORREO_NOTIFICACION_PRINCIPAL):
     """
-    Envía una alerta exclusiva al usuario/Levi con el detalle de errores detectados en las fichas.
+    Envía una alerta exclusiva al usuario principal (almacen@windsunmx.com) con el detalle de errores detectados.
     """
     webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
     if not webhook_url:
@@ -183,11 +187,9 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     master_acuse_texto = texto
                     master_filename = nombre
 
-    # Extraer Técnico del Acuse Maestro
     match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
     tecnico_master = match_tecnico_master.group(1).strip() if match_tecnico_master else "TÉCNICO NO DETECTADO"
 
-    # Extraer Ítems del Acuse
     items_master = []
     lineas = master_acuse_texto.split('\n')
     for l in lineas:
@@ -218,7 +220,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
         tecnico_ficha = match_tecnico.group(1).strip() if match_tecnico else "DESCONOCIDO"
         marca_ficha = match_marca.group(1).strip().upper() if match_marca else ("PETZL" if "PETZL" in texto_ficha.upper() or "PETZL" in nombre_archivo.upper() else "OTRA")
 
-        # Regla Petzl
         if "PETZL" in marca_ficha:
             coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
             coincidencia_modelo = any(item["modelo"].upper() in modelo_ficha.upper() or modelo_ficha.upper() in item["raw_line"].upper() for item in items_master)
@@ -248,7 +249,6 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "anio": ANIO_ACTUAL,
                     "estatus": "CORRECTO ✅"
                 })
-        # Regla Otras Marcas
         else:
             coincidencia_serie = any(item["serie"].upper() in texto_ficha.upper() or serie_ficha in item["serie"].upper() for item in items_master)
             coincidencia_tecnico = (tecnico_ficha.upper() in tecnico_master.upper()) or (tecnico_master.upper() in tecnico_ficha.upper()) or tecnico_ficha == "DESCONOCIDO"
@@ -464,7 +464,7 @@ with tab_inspeccion:
                         tecnico=inspector_str,
                         equipo=f"{item_sel} ({dep_insp})",
                         estatus="NO CONFORME",
-                        destinatario="almacen@windsunmx.com",
+                        destinatario=CORREO_NOTIFICACION_PRINCIPAL,
                         detalles_adicionales=obs_insp
                     )
                 
@@ -517,7 +517,7 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
 2. Aplica automáticamente el Marco Jurídico Mexicano vigente en materia de Seguridad y Salud en el Trabajo (Ley Federal del Trabajo, Reglamento Federal de SST y las Normas Oficiales Mexicanas de la STPS en sus versiones más recientes y actualizadas a la fecha, incluyendo NOM-017-STPS, NOM-009-STPS, NOM-031-STPS, etc.).
 3. Identifica e integra de forma autónoma la Norma Oficial Mexicana vigente que aplique a la consulta del usuario, sin necesidad de que el usuario especifique la norma, la clave o el año.
-4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) when aporte rigor técnico.
+4. Complementa con estándares internacionales vigentes de referencia para trabajo en altura e inspección técnica (ANSI/ASSP, OSHA, NFPA, EN/CE) cuando aporte rigor técnico.
 5. Para consultas de ámbito general (fórmulas o macros de Excel, redacción de reportes técnicos, gestión operativa), responde directamente con el mismo rigor, claridad y estructura en español.
 """
             if "DeepSeek" in motor_ia:
@@ -572,13 +572,13 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 # 6. AUDITORÍA Y CONTROL DE CALIDAD EN FICHAS (.ZIP) CON FILTRO DE AÑO
 with tab_zip:
     st.header(f"📂 Auditar y Corregir Fichas de Técnico (Año Activo: {ANIO_ACTUAL})")
-    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Si se encuentran errores de captura (Petzl o otras marcas), el sistema te notificará directamente por correo para hacer el ajuste rápido en Excel.")
+    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Si se encuentran errores de captura (Petzl u otras marcas), el sistema te notificará directamente por correo para hacer el ajuste rápido en Excel.")
     
     col_c1, col_c2, col_c3 = st.columns([1.5, 1.5, 1])
     with col_c1:
-        correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones de error):", placeholder="ejemplo@windsunmx.com").strip()
+        correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones de error):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
     with col_c2:
-        correo_companera = st.text_input("Correo de tu compañera (colaboradora):", placeholder="companera@windsunmx.com").strip()
+        correo_companera = st.text_input("Correo de tu compañera (colaboradora):", value=CORREO_COMPANERA_OPERACIONES).strip()
     with col_c3:
         dep_destino = st.selectbox("Departamento:", DEPARTAMENTOS)
 
@@ -605,7 +605,7 @@ with tab_zip:
                     for err in lista_errores:
                         texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
                     
-                    # Notificación enviada a ti/Levi
+                    # Notificación enviada a tu correo
                     if correo_notificacion_mi_usuario:
                         with st.spinner("Enviando aviso de errores a tu correo..."):
                             envio_ok = enviar_alerta_errores_usuario(
@@ -617,8 +617,6 @@ with tab_zip:
                                 st.warning(f"📧 Se envió una notificación de ajuste a tu correo (**{correo_notificacion_mi_usuario}**).")
                             else:
                                 st.info("No se pudo enviar el correo automático (revisa la URL de Power Automate).")
-                    else:
-                        st.info("💡 Ingresa tu correo en el campo superior para recibir el aviso de ajustes automáticamente.")
                 else:
                     st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas exitosamente! No se encontraron errores humanos.")
                     
