@@ -208,15 +208,14 @@ with tab_historial:
         st.dataframe(df_insp_view, use_container_width=True)
     else:
         st.info("Aún no existen registros en la pestaña de Inspecciones.")
-
 # ---------------------------------------------------------
-# 5. ASISTENTE IA
+# 5. ASISTENTE IA (ROL TÉCNICO MULTIDISCIPLINARIO + FALLBACK)
 # ---------------------------------------------------------
 with tab_ia:
-    st.header("🤖 Asistente Técnico de Seguridad e Inspección")
-    st.caption("Consulta criterios de rechazo de equipos, normas NOM-017-STPS, OSHA, NFPA, etc.")
+    st.header("🤖 Asistente Inteligente y Consultor Técnico")
+    st.caption("Consulta sobre criterios de rechazo de EPP, normas (NOM-017-STPS, OSHA), soporte en Excel, redacción de informes o cualquier duda general.")
     
-    pregunta = st.text_input("Escribe tu consulta técnica:")
+    pregunta = st.text_input("Escribe tu consulta:")
     
     if st.button("🔍 Consultar IA"):
         if pregunta:
@@ -225,11 +224,41 @@ with tab_ia:
                     st.error("❌ Falta la clave 'GEMINI_API_KEY' en los Secrets de Streamlit.")
                 else:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
-                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
-                    with st.spinner("Analizando criterio técnico..."):
-                        prompt = f"Eres un Ingeniero especialista en Seguridad Industrial y EPP de altura. Responde técnicamente: {pregunta}"
-                        response = model.generate_content(prompt)
-                        st.markdown(response.text)
+                    # Lista de modelos compatibles
+                    modelos_a_probar = [
+                        'gemini-2.5-flash',
+                        'gemini-2.0-flash',
+                        'gemini-1.5-flash-latest',
+                        'gemini-1.5-flash',
+                        'gemini-1.5-pro'
+                    ]
+                    
+                    response = None
+                    modelo_activo = None
+                    
+                    prompt = f"""
+                    Eres un asistente inteligente útil y versátil. 
+                    Tienes especial experiencia en Seguridad Industrial, Inspección de EPP de Altura y Normatividad (NOM-017-STPS, OSHA, NFPA), 
+                    pero puedes responder con claridad, estructura y precisión sobre cualquier tema general que el usuario consulte (fórmulas de Excel, Macros VBA, redacción de informes, procesos, etc.).
+
+                    Consulta del usuario: {pregunta}
+                    """
+                    
+                    with st.spinner("Procesando consulta..."):
+                        for mod in modelos_a_probar:
+                            try:
+                                model = genai.GenerativeModel(mod)
+                                response = model.generate_content(prompt)
+                                modelo_activo = mod
+                                break
+                            except Exception:
+                                continue
+                        
+                        if response and hasattr(response, 'text'):
+                            st.markdown(response.text)
+                            st.caption(f"🤖 *Respuesta generada por: `{modelo_activo}`*")
+                        else:
+                            st.error("❌ No se pudo conectar con los modelos de Gemini. Verifica tu clave API Key en Secrets.")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error al procesar la consulta: {e}")
