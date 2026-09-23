@@ -92,7 +92,7 @@ elif password_ingresada != "":
     st.sidebar.error("❌ Contraseña incorrecta")
 
 # ---------------------------------------------------------
-# FILTRO ESTRICTO DE ELEMENTOS VÁLIDOS (SOLO EQUIPOS SERIABLES)
+# FILTRO ESTRICTO DE ELEMENTOS SERIABLES REALES
 # ---------------------------------------------------------
 def es_item_valido_o_excepcion(linea_texto):
     texto_upper = linea_texto.upper()
@@ -100,23 +100,32 @@ def es_item_valido_o_excepcion(linea_texto):
     palabras_prohibidas = [
         "WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09", "FIRMA", 
         "RECIBE", "NOMBRE", "FECHA", "ITEM", "TALLA", "OBSERVACIONES", 
-        "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE"
+        "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
+        "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p == texto_upper or (len(texto_upper.split()) == 1 and texto_upper in palabras_prohibidas) for p in palabras_prohibidas):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "ABSORBICA", "VERTEX"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V)'
     if re.search(patron_guantes_dielectricos, texto_upper):
         return True, True
 
-    match_serie_candidata = re.search(r'\b([A-Z0-9\-]{5,25})\b', texto_upper)
-    if not match_serie_candidata:
+    palabras = texto_upper.split()
+    serie_encontrada = None
+    
+    for palabra in palabras:
+        if len(palabra) >= 6 and any(c.isdigit() for c in palabra) and any(c.isalpha() for c in palabra):
+            serie_encontrada = palabra
+            break
+        elif len(palabra) >= 8 and palabra.isdigit():
+            serie_encontrada = palabra
+            break
+
+    if not serie_encontrada:
         return False, False
 
-    posible_serie = match_serie_candidata.group(1)
-    
-    palabras_invalidas_serie = ["DESCONOCIDO", "PETZL", "ROCK", "EMPIRE", "ARNÉS", "CASCO", "ESLINGA", "CINTA"]
-    if posible_serie in palabras_invalidas_serie:
+    falsas_series = ["NUEVO", "NUEVOS", "USADO", "APTO", "DESCONOCIDO", "INSPECCION", "CONFORME"]
+    if serie_encontrada in falsas_series:
         return False, False
 
     return True, False
@@ -294,14 +303,14 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 
         if es_valido:
             partes = linea_str.split()
-            if len(partes) >= 2:
+            if len(partes) >= 1:
                 if es_excepcion_guante:
                     num_serie = "SIN SERIE (DIELÉCTRICO)"
                     modelo = "CLASE 0 / 1000V"
                     marca = partes[-2] if len(partes) >= 3 else "DESCONOCIDO"
                     descripcion = "GUANTE DIELÉCTRICO"
                 else:
-                    num_serie = partes[-1] if len(partes[-1]) >= 5 else (partes[1] if len(partes) > 1 else partes[0])
+                    num_serie = next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), partes[-1])
                     marca = "PETZL" if "PETZL" in linea_str.upper() else ("ROCK EMPIRE" if "ROCK" in linea_str.upper() else "OTRA")
                     
                     texto_l_upper = linea_str.upper()
