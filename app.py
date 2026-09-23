@@ -137,7 +137,7 @@ def es_item_valido_o_excepcion(linea_texto):
         "DESCRIPCIÓN", "MARCA", "MODELO", "SERIE", "CANTIDAD", "PÁGINA", "DE",
         "RODRIGO", "GONZALEZ", "TRUJILLO", "LEVI", "PERSONAL", "LENTES", "DERMACARE", "MASTER"
     ]
-    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE", "60", "120"]):
+    if any(p in texto_upper for p in palabras_prohibidas) and not any(k in texto_upper for k in ["ARNÉS", "ARNES", "CASCO", "ESLINGA", "CINTA", "POSICIONADOR", "CROLL", "ABSORBICA", "VERTEX", "STRATO", "AVAO", "VOLT", "GRILLON", "SKC", "SOLL", "GUANTE", "60", "120"]):
         return False, False
 
     patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V|NOVAX)'
@@ -148,10 +148,8 @@ def es_item_valido_o_excepcion(linea_texto):
     serie_encontrada = None
     
     for palabra in palabras:
-        if len(palabra) >= 6 and any(c.isdigit() for c in palabra) and any(c.isalpha() for c in palabra):
-            serie_encontrada = palabra
-            break
-        elif len(palabra) >= 8 and palabra.isdigit():
+        # Acepta series alfanuméricas con guiones o barras diagonales (ej. 21365205/070)
+        if (len(palabra) >= 6 and any(c.isdigit() for c in palabra)) or ('/' in palabra and any(c.isdigit() for c in palabra)):
             serie_encontrada = palabra
             break
 
@@ -302,7 +300,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (ROBUSTA Y MULTI-CINTAS)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (FLEXIBLE Y BLINDADA)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -370,9 +368,9 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     descripcion = "GUANTE DIELÉCTRICO 1000V"
                     candidatos_serie = [num_serie]
                 else:
-                    candidatos_serie = [p for p in partes if (len(p) >= 6 and any(c.isdigit() for c in p) and any(c.isalpha() for c in p)) or (len(p) >= 8 and p.isdigit())]
+                    candidatos_serie = [p for p in partes if (len(p) >= 6 and any(c.isdigit() for c in p)) or ('/' in p and any(c.isdigit() for c in p))]
                     if not candidatos_serie:
-                        candidatos_serie = [next((p for p in partes if len(p) >= 6 and any(c.isdigit() for c in p)), partes[-1])]
+                        candidatos_serie = [partes[-1]]
 
                 for cand in candidatos_serie:
                     num_serie = re.sub(r'(?i)^(fix|s/n|serie)[:\s]*', '', cand)
@@ -390,22 +388,22 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Detección inteligente ampliada (con soporte flexible para 60cm y 120cm separados o juntos)
+                    # Detección flexible y tolerante a acentos/mayúsculas/minúsculas
                     if not descripcion:
-                        if "CASCO" in texto_l_upper or "VERTEX" in texto_l_upper or "STRATO" in texto_l_upper:
+                        if any(k in texto_l_upper for k in ["CASCO", "VERTEX", "STRATO"]):
                             descripcion = "CASCO"
                             marca = "PETZL"
-                        elif "ARNÉS" in texto_l_upper or "ARNES" in texto_l_upper or "ATLAS" in texto_l_upper or "AVAO" in texto_l_upper:
+                        elif any(k in texto_l_upper for k in ["ARNÉS", "ARNES", "ATLAS", "AVAO", "VOLT"]):
                             descripcion = "ARNÉS"
-                        elif "GANCHO" in texto_l_upper or "APERTURA" in texto_l_upper or "AUSTIN" in texto_l_upper:
+                        elif any(k in texto_l_upper for k in ["GANCHO", "APERTURA", "AUSTIN"]):
                             descripcion = "GANCHO"
-                        elif "RETRACTIL" in texto_l_upper or "CINTURON" in texto_l_upper:
+                        elif any(k in texto_l_upper for k in ["RETRACTIL", "CINTURON", "CINTURÓN"]):
                             descripcion = "CINTURÓN RETRÁCTIL"
                             marca = "PROTECTA"
-                        elif "MOSQUETON" in texto_l_upper or "OK" in texto_l_upper:
+                        elif any(k in texto_l_upper for k in ["MOSQUETON", "MOSQUETÓN", "OK", "AM'D", "MAGNUM"]):
                             descripcion = "MOSQUETÓN"
-                            marca = "PETZL"
-                        elif "CINTA" in texto_l_upper or "ANCLAJE" in texto_l_upper or "ANNEAU" in texto_l_upper or "60" in texto_l_upper or "120" in texto_l_upper:
+                            marca = "PETZL" if "OK" in texto_l_upper or "AM'D" in texto_l_upper else "ROCK EMPIRE"
+                        elif any(k in texto_l_upper for k in ["CINTA", "ANCLAJE", "ANNEAU", "60", "120"]):
                             marca = "PETZL"
                             if "60" in texto_l_upper:
                                 descripcion = "CINTA DE ANCLAJE 60CM"
@@ -413,9 +411,17 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                                 descripcion = "CINTA DE ANCLAJE 120CM"
                             else:
                                 descripcion = "CINTA DE ANCLAJE"
-                        elif "GRILLON" in texto_l_upper or "POSICIONADOR" in texto_l_upper:
+                        elif any(k in texto_l_upper for k in ["GRILLON", "POSICIONADOR", "CATCH"]):
                             descripcion = "POSICIONADOR / ESLINGA"
-                            marca = "PETZL"
+                            marca = "PETZL" if "GRILLON" in texto_l_upper else "ROCK EMPIRE"
+                        elif any(k in texto_l_upper for k in ["SKC", "SOLL", "SÖLL", "VI-GO", "ANTICAIDAS", "ANTICAÍDAS", "AVANTI"]):
+                            descripcion = "ANTICAÍDAS"
+                            if "SKC" in texto_l_upper:
+                                marca = "SOMAIN"
+                            elif "SOLL" in texto_l_upper or "SÖLL" in texto_l_upper:
+                                marca = "HONEYWELL"
+                            else:
+                                marca = "AVANTI"
                         else:
                             descripcion = ""
 
