@@ -44,36 +44,51 @@ CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMmcnFcNCXOYXvaf9k83_CXfvnFJTgiwTgo9sNWqxYc1NRACo24vIWqImP56lVwrL3/exec"
 
 # ---------------------------------------------------------
-# BARRA LATERAL: PANEL DE ADMINISTRACIÓN Y PERSONALIZACIÓN
+# DETECCIÓN INTELIGENTE DE CONTRASTE Y CONFIGURACIÓN VISUAL
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ Configuración Visual")
 color_fondo = st.sidebar.color_picker("🎨 Color de Fondo del Sistema", "#0e1117")
 
-# Estilos CSS avanzados para forzar el cambio de color de fondo en toda la aplicación
+def calcular_color_texto(hex_color):
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return "#000000" if luminancia > 0.5 else "#FFFFFF"
+
+color_texto = calcular_color_texto(color_fondo)
+
 st.markdown(f"""
     <style>
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
         background-color: {color_fondo} !important;
+        color: {color_texto} !important;
     }}
-    body {{
-        -webkit-user-select: none;
-        -ms-user-select: none;
-        user-select: none;
+    h1, h2, h3, h4, h5, h6, p, span, label, div, .stMarkdown {{
+        color: {color_texto} !important;
+    }}
+    .stTextInput input, .stSelectbox select {{
+        color: #000000 !important;
     }}
     </style>
 """, unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# PANEL DE ADMINISTRADOR POR CONTRASEÑA EN BARRA LATERAL
+# ---------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.header("🔒 Panel de Administrador")
 password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
 
-PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "Windsun2026*")
+# Contraseña predeterminada (puedes cambiarla aquí directamente)
+PASSWORD_ADMIN = "Windsun2026*"
 
-sistema_activo = True  # Por defecto activo
+sistema_activo = True  # Por defecto el sistema opera con normalidad
 
 if password_ingresada == PASSWORD_ADMIN:
-    st.sidebar.success("🔓 Modo Administrador Activado")
-    sistema_activo = st.sidebar.toggle("🟢 Sistema Operativo (Activo/Inactivo)", value=True, help="Permite apagar o encender el sistema completo en caso de mantenimiento.")
+    st.sidebar.success("🔓 Administrador Autenticado")
+    sistema_activo = st.sidebar.toggle("🟢 Sistema Operativo (Activo/Inactivo)", value=True, help="Apaga o enciende el sistema completo.")
 elif password_ingresada != "":
     st.sidebar.error("❌ Contraseña incorrecta")
 
@@ -123,12 +138,24 @@ def determinar_departamento_automatico(texto_pdf):
     return "REVISIÓN"
 
 # ---------------------------------------------------------
-# CONEXIÓN DIRECTA CON GOOGLE SHEETS (APPS SCRIPT)
+# CONEXIÓN OPTIMIZADA CON GOOGLE SHEETS
 # ---------------------------------------------------------
 def enviar_datos_a_google_sheets(df_nuevos):
     try:
-        df_limpio = df_nuevos.fillna("").astype(str)
-        registros = df_limpio.to_dict(orient="records")
+        # Aseguramos formato limpio compatible con Apps Script
+        registros = []
+        for _, row in df_nuevos.iterrows():
+            registros.append({
+                "DEPARTAMENTO": str(row.get("DEPARTAMENTO", "")),
+                "DESCRIPCIÓN": str(row.get("DESCRIPCIÓN", "")),
+                "MARCA": str(row.get("MARCA", "")),
+                "MODELO": str(row.get("MODELO", "")),
+                "NÚMERO DE SERIE": str(row.get("NÚMERO DE SERIE", "")),
+                "FACTURA_OC": str(row.get("FACTURA_OC", "")),
+                "FECHA_DE_ESTATUS": str(row.get("FECHA_DE_ESTATUS", "")),
+                "OBSERVACIONES": str(row.get("OBSERVACIONES", "")),
+                "ESTATUS": str(row.get("ESTATUS", "OK"))
+            })
         
         headers = {"Content-Type": "application/json"}
         response = requests.post(APPS_SCRIPT_URL, json=registros, headers=headers, timeout=30)
@@ -370,7 +397,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
 # ---------------------------------------------------------
 st.title("🛡️ Sistema de Gestión EPP e Inspecciones")
 
-# VALIDACIÓN DE KILL SWITCH (SOLO SI EL ADMINISTRADOR LO DESACTIVA)
+# VALIDACIÓN DE KILL SWITCH
 if not sistema_activo:
     st.warning("⚠️ **SISTEMA INHABILITADO:** El administrador ha pausado temporalmente las operaciones y la sincronización con Excel.")
     st.stop()
