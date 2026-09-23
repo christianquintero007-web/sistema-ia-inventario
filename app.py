@@ -19,6 +19,8 @@ DEPARTAMENTOS = [
     "PERSONAL 105", 
     "PERSONAL 111", 
     "PERSONAL 118", 
+    "PALAS",
+    "MANTENIMIENTO",
     "REVISIÓN", 
     "BAJAS"
 ]
@@ -32,6 +34,21 @@ def normalizar_encabezado(texto):
     texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
     return texto.lower().strip()
 
+def coincide_departamento(val_celda, dep_seleccionado):
+    """Compara flexiblemente '105' con 'PERSONAL 105' o 'PALAS'"""
+    val_str = str(val_celda).upper().strip()
+    dep_str = str(dep_seleccionado).upper().strip()
+    if not val_str or val_str == "NAN":
+        return False
+    if val_str == dep_str:
+        return True
+    # Extraer números si existen (ej. '105' dentro de 'PERSONAL 105')
+    nums_val = ''.join(filter(str.isdigit, val_str))
+    nums_dep = ''.join(filter(str.isdigit, dep_str))
+    if nums_val and nums_dep and nums_val == nums_dep:
+        return True
+    return val_str in dep_str or dep_str in val_str
+
 def cargar_hoja_csv(pestaña):
     try:
         url_base = st.secrets["connections"]["gsheets"]["spreadsheet"]
@@ -41,9 +58,9 @@ def cargar_hoja_csv(pestaña):
         df = pd.read_csv(url_csv)
         
         if not df.empty:
-            # Normalizar encabezados (tolerante a errores ortográficos menores)
+            # Normalizar encabezados
             df.columns = [normalizar_encabezado(col) for col in df.columns]
-            # Eliminar columnas fantasma / unnamed
+            # Eliminar columnas sin nombre
             df = df.loc[:, ~df.columns.str.startswith('unnamed')]
             
         return df.dropna(how="all")
@@ -73,14 +90,15 @@ with tab_dashboard:
     dep_filtro = st.selectbox("Filtrar por Departamento / Área:", ["TODOS"] + DEPARTAMENTOS)
     
     if not df_inv.empty:
-        if dep_filtro != "TODOS" and "departamento" in df_inv.columns:
-            df_view = df_inv[df_inv["departamento"].astype(str).str.upper() == dep_filtro.upper()]
+        col_dep = next((c for c in df_inv.columns if "dep" in c or "area" in c or "columna1" in c), None)
+        
+        if dep_filtro != "TODOS" and col_dep:
+            df_view = df_inv[df_inv[col_dep].apply(lambda x: coincide_departamento(x, dep_filtro))]
         else:
             df_view = df_inv
             
         total_equipos = len(df_view)
         
-        # Detectar columna de estado / estatus
         col_estatus = next((c for c in df_view.columns if "estatus" in c or "estado" in c), None)
         
         if col_estatus:
@@ -91,9 +109,9 @@ with tab_dashboard:
             no_ok_count = 0
             
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total de Equipos", total_equipos)
+        c1.metric("Total de Equipos / Registros", total_equipos)
         c2.metric("Operativos / OK ✅", ok_count)
-        c3.metric("En Revisión / Baja ❌", no_ok_count)
+        c3.metric("En Revisión / Pendientes ❌", no_ok_count)
         
         st.divider()
         st.dataframe(df_view, use_container_width=True)
@@ -131,68 +149,71 @@ with tab_registrar:
         btn_guardar = st.form_submit_button("💾 Registrar Equipo")
         
         if btn_guardar:
-            if num_serie and marca:
+            if num_serie or descripcion:
                 obs_final = f"Téc: {tecnico_resp if tecnico_resp else 'N/A'} | {motivo_registro}"
                 if obs_adicionales:
                     obs_final += f" | {obs_adicionales}"
                     
-                st.success(f"✅ Registro completado para el equipo **{num_serie}** ({descripcion})")
-                st.markdown(f"**Observación generada para Google Sheets:** `{obs_final}`")
-                st.info("💡 Recuerda que al hacer clic en 'Datos > Actualizar todo' en Excel, se descargará automáticamente.")
+                st.success(f"✅ Registro completado para **{num_serie if num_serie else descripcion}**")
+                st.markdown(f"**Observación generada:** `{obs_final}`")
             else:
-                st.warning("⚠️ Completa al menos el NÚMERO DE SERIE y la MARCA.")
+                st.warning("⚠️ Completa al menos la DESCRIPCIÓN o NÚMERO DE SERIE.")
 
 # ---------------------------------------------------------
 # 3. INSPECCIÓN PRE-OPERACIONAL
 # ---------------------------------------------------------
 with tab_inspeccion:
     st.header("📋 Inspección Pre-operacional en Campo")
-    df_inv = cargar_hoja_csv("INVENTARIO")
     
-    if df_inv.empty:
-        st.warning("⚠️ No hay equipos registrados en el inventario.")
-    else:
-        col_serie = next((c for c in df_inv.columns if "serie" in c or "codigo" in c), None)
+    # Intentamos leer la pestaña de INSPECCIONES o INVENTARIO
+    df_insp_data = cargar_hoja_csv("INSPECCIONES")
+    if df_insp_data.empty:
+        df_insp_data = cargar_hoja_csv("INVENTARIO")
         
-        if not col_serie:
-            st.error("❌ No se detectó la columna 'NUMERO DE SERIE' en la hoja de Google Sheets.")
+    if df_insp_data.empty:
+        st.warning("⚠️ No se encontraron datos registrados en Google Sheets.")
+    else:
+        dep_insp = st.selectbox("Selecciona Departamento / Área:", DEPARTAMENTOS, key="dep_insp")
+        
+        col_dep = next((c for c in df_insp_data.columns if "dep" in c or "area" in c or "columna1" in c), None)
+        
+        if col_dep:
+            df_dep = df_insp_data[df_insp_data[col_dep].apply(lambda x: coincide_departamento(x, dep_insp))]
         else:
-            dep_insp = st.selectbox("Selecciona Departamento / Área:", DEPARTAMENTOS, key="dep_insp")
+            df_dep = df_insp_data
             
-            if "departamento" in df_inv.columns:
-                df_dep = df_inv[df_inv["departamento"].astype(str).str.upper() == dep_insp.upper()]
-            else:
-                df_dep = df_inv
-                
-            series_disponibles = df_dep[col_serie].dropna().astype(str).unique().tolist()
+        # Detectar la columna que contiene al equipo o personal (palas, serie, tecnico, personal)
+        col_identificador = next((c for c in df_dep.columns if any(k in c for k in ["serie", "codigo", "palas", "personal", "tecnico", "descripcion"])), df_dep.columns[0] if not df_dep.empty else None)
+        
+        if df_dep.empty or not col_identificador:
+            st.info(f"No hay registros cargados bajo el área **{dep_insp}**.")
+        else:
+            elementos_disponibles = df_dep[col_identificador].dropna().astype(str).unique().tolist()
             
-            if not series_disponibles:
-                st.info(f"No hay equipos registrados bajo el área **{dep_insp}**.")
-            else:
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    serie_sel = st.selectbox("Selecciona el Número de Serie / Código:", series_disponibles)
-                with col_b:
-                    inspector = st.text_input("TÉCNICO / INSPECTOR QUE VERIFICA", placeholder="ej. Ing. Carlos R.").strip()
+            col_a, col_b = st.columns(2)
+            with col_a:
+                item_sel = st.selectbox("Selecciona Equipo / Personal a Verificar:", elementos_disponibles)
+            with col_b:
+                inspector = st.text_input("TÉCNICO / INSPECTOR QUE VERIFICA", placeholder="ej. Ing. Carlos R.").strip()
+            
+            st.subheader("Criterios Normativos de Inspección")
+            c1 = st.checkbox("Cintas / Cuerdas: Sin cortes, desgaste, quemaduras ni hilos sueltos.")
+            c2 = st.checkbox("Costuras de Seguridad: Continuas e íntegras.")
+            c3 = st.checkbox("Partes Metálicas / Hebillas: Sin deformaciones, fisuras ni corrosión.")
+            
+            obs_insp = st.text_area("Observaciones / Hallazgos de la Inspección")
+            
+            if st.button("📝 Guardar Inspección"):
+                resultado = "ok" if (c1 and c2 and c3) else "no conforme"
+                fecha_hoy = date.today().strftime("%Y-%m-%d")
+                inspector_str = inspector if inspector else "No especificado"
                 
-                st.subheader("Criterios Normativos de Inspección")
-                c1 = st.checkbox("Cintas / Cuerdas: Sin cortes, desgaste, quemaduras ni hilos sueltos.")
-                c2 = st.checkbox("Costuras de Seguridad: Continuas e íntegras.")
-                c3 = st.checkbox("Partes Metálicas / Hebillas: Sin deformaciones, fisuras ni corrosión.")
+                if resultado == "ok":
+                    st.success(f"✅ Inspección registrada para **{item_sel}** ({dep_insp}): **OK**")
+                else:
+                    st.error(f"❌ Inspección para **{item_sel}** ({dep_insp}): **NO CONFORME**")
                 
-                obs_insp = st.text_area("Observaciones / Hallazgos de la Inspección")
-                
-                if st.button("📝 Guardar Inspección"):
-                    resultado = "ok" if (c1 and c2 and c3) else "no conforme"
-                    fecha_hoy = date.today().strftime("%Y-%m-%d")
-                    inspector_str = inspector if inspector else "No especificado"
-                    
-                    if resultado == "ok":
-                        st.success(f"✅ Inspección registrada para **{serie_sel}** ({dep_insp}): **OK**")
-                    else:
-                        st.error(f"❌ Inspección para **{serie_sel}** ({dep_insp}): **NO CONFORME**")
-                    
-                    st.caption(f"Inspector: {inspector_str} | Fecha: {fecha_hoy} | Hallazgo: {obs_insp if obs_insp else 'Sin novedad'}")
+                st.caption(f"Inspector: {inspector_str} | Fecha: {fecha_hoy} | Hallazgo: {obs_insp if obs_insp else 'Sin novedad'}")
 
 # ---------------------------------------------------------
 # 4. HISTORIAL DE INSPECCIONES
@@ -203,8 +224,11 @@ with tab_historial:
     
     if not df_insp.empty:
         dep_hist = st.selectbox("Filtrar por Departamento:", ["TODOS"] + DEPARTAMENTOS, key="dep_hist")
-        if dep_hist != "TODOS" and "departamento" in df_insp.columns:
-            df_insp_view = df_insp[df_insp["departamento"].astype(str).str.upper() == dep_hist.upper()]
+        
+        col_dep_h = next((c for c in df_insp.columns if "dep" in c or "area" in c or "columna1" in c), None)
+        
+        if dep_hist != "TODOS" and col_dep_h:
+            df_insp_view = df_insp[df_insp[col_dep_h].apply(lambda x: coincide_departamento(x, dep_hist))]
         else:
             df_insp_view = df_insp
             
@@ -237,7 +261,7 @@ with tab_ia:
             prompt_sistema = """
 REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda strictly prohibido incluir introducciones, prefijos o saludos en inglés.
+- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
