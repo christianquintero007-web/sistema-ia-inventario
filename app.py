@@ -302,7 +302,7 @@ def enviar_alerta_errores_usuario(tecnico, resumen_errores, correo_notificacion=
         return False
 
 # ---------------------------------------------------------
-# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (ESTRICTA Y BLINDADA)
+# EXTRACCIÓN Y LÓGICA DE AUDITORÍA DE FICHAS (INCLUSIVA Y LIMPIA)
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -375,8 +375,8 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     texto_l_upper = linea_str.upper()
 
                     # Búsqueda rigurosa en el Catálogo Maestro Ampliado
-                    modelo = "N/A"
-                    marca = "OTRA"
+                    modelo = ""
+                    marca = ""
                     descripcion = ""
 
                     for mod_key, info in CATALOGO_EQUIPOS_EPP.items():
@@ -386,9 +386,13 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                             descripcion = info["descripcion"]
                             break
                     
-                    # Si no coincide estrictamente con el diccionario maestro autorizado, se descarta (se deja en blanco/omite)
+                    # Si no coincide exactamente, se dejan celdas en blanco o genéricas pero la fila se añade
                     if not descripcion:
-                        continue
+                        descripcion = ""
+                    if not marca:
+                        marca = ""
+                    if not modelo:
+                        modelo = ""
 
                 items_master.append({
                     "raw_line": linea_str,
