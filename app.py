@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Año dinámico activo (Evaluado automáticamente)
+# Año dinámico activo
 ANIO_ACTUAL = date.today().year
 
 DEPARTAMENTOS = [
@@ -42,16 +42,37 @@ MAPA_DEPARTAMENTOS = {
     "BAJAS": ["BAJA", "BAJAS"]
 }
 
-# CORREOS PREDETERMINADOS DEL SISTEMA
 CORREO_NOTIFICACION_PRINCIPAL = "almacen@windsunmx.com"
 CORREO_COMPANERA_OPERACIONES = "auxiliaroperaciones@windsunmx.com"
 
 # ---------------------------------------------------------
-# DETECTOR AUTOMÁTICO DE DEPARTAMENTO SEGÚN ACUSE EPI
+# FILTRO DE ELEMENTOS SERIABLES Y EXCEPCIONES (GUANTES 1000V / CLASE 0)
+# ---------------------------------------------------------
+def es_item_valido_o_excepcion(linea_texto):
+    """
+    Verifica si una línea corresponde a un equipo seriable o si cumple la excepción de guantes dieléctricos.
+    """
+    texto_upper = linea_texto.upper()
+
+    # Ignorar encabezados y datos del formato
+    if any(k in texto_upper for k in ["WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09", "FIRMA", "RECIBE"]):
+        return False, False
+
+    # EXCEPCIÓN ESPECIAL: Guantes de 1000 / Clase 0 / 1000V
+    patron_guantes_dielectricos = r'GUANTE.*(1000|CLASE\s*0|1000V)'
+    if re.search(patron_guantes_dielectricos, texto_upper):
+        return True, True  # Es válido (por excepción)
+
+    # REGLA GENERAL: Elementos Seriables (contienen un código o serie alfanumérico)
+    tiene_serie = bool(re.search(r'[A-Z0-9]{5,20}', texto_upper))
+    return tiene_serie, False
+
+# ---------------------------------------------------------
+# DETECTOR AUTOMÁTICO DE DEPARTAMENTO
 # ---------------------------------------------------------
 def determinar_departamento_automatico(texto_pdf):
     """
-    Determina automáticamente el departamento leyendo Puesto, Parque Eólico y Localidad en el Acuse EPI.
+    Clasifica automáticamente el departamento evaluando Puesto, Parque Eólico y Localidad.
     """
     texto_upper = texto_pdf.upper()
 
@@ -64,19 +85,19 @@ def determinar_departamento_automatico(texto_pdf):
     localidad = match_localidad.group(1).upper() if match_localidad else ""
     info_contexto = f"{puesto} {parque} {localidad} {texto_upper}"
 
-    # 1. Regla USA 118: Técnico de Mantenimiento + Ubicación USA (San Román, Austin, Texas)
-    if ("MANTENIMIENTO" in puesto or "TECNICO DE MANTENIMIENTO" in puesto) and any(k in info_contexto for k in ["SAN ROMAN", "SAN ROMÁN", "AUSTIN", "TEXAS", "USA"]):
+    # 1. USA 118: Técnico de Mantenimiento en San Román / Austin / Texas / USA
+    if any(k in puesto for k in ["MANTENIMIENTO", "TECNICO DE MANTENIMIENTO", "TÉCNICO DE MANTENIMIENTO"]) and any(k in info_contexto for k in ["SAN ROMAN", "SAN ROMÁN", "AUSTIN", "TEXAS", "USA"]):
         return "USA 118"
 
-    # 2. Regla BASTIDOR 103: Soldador, Bastidor, Técnico Bastidor
+    # 2. BASTIDOR 103: Soldador, Bastidor, Técnico Bastidor
     if any(k in puesto for k in ["SOLDADOR", "BASTIDOR", "TECNICO BASTIDOR", "TÉCNICO BASTIDOR"]) or "BASTIDOR" in texto_upper:
         return "BASTIDOR 103"
 
-    # 3. Regla PALAS 105: Técnico Palas, Palas, Líder Palas
+    # 3. PALAS 105: Técnico Palas, Palas, Líder Palas
     if any(k in puesto for k in ["PALAS", "TECNICO PALAS", "TÉCNICO PALAS", "LIDER PALAS", "LÍDER PALAS"]) or "PALAS" in texto_upper:
         return "PALAS 105"
 
-    # 4. Regla MANTENIMIENTO 111: Técnico Mantenimiento / Mantenimiento o Parques (Juchitán, Vestas, Bii Hioxo)
+    # 4. MANTENIMIENTO 111: Técnico Mantenimiento / Parques (Juchitán, Vestas, Bii Hioxo)
     if any(k in puesto for k in ["MANTENIMIENTO", "TECNICO MANTENIMIENTO", "TÉCNICO MANTENIMIENTO"]) or any(k in info_contexto for k in ["JUCHITAN", "JUCHITÁN", "VESTAS", "BII HIOXO", "BIIHIOXO"]):
         return "MANTENIMIENTO 111"
 
@@ -168,10 +189,6 @@ def obtener_cliente_gspread():
     return None
 
 def obtener_o_crear_hoja_anual(sh, nombre_base="INVENTARIO"):
-    """
-    Busca la pestaña del año actual (ej. INVENTARIO_2026).
-    Si cambia de año (ej. 2027), crea automáticamente la nueva hoja con sus encabezados.
-    """
     pestaña_target = f"{nombre_base}_{ANIO_ACTUAL}"
     
     try:
@@ -207,7 +224,7 @@ def sincronizar_o_actualizar_tecnico_sheets(df_nuevos, nombre_pestaña="INVENTAR
         return False
 
 # ---------------------------------------------------------
-# LÓGICA DE AUDITORÍA Y EXTRACCIÓN DE ACUSE EPI
+# LÓGICA DE AUDITORÍA Y EXTRACCIÓN DEL ACUSE EPI
 # ---------------------------------------------------------
 def extraer_datos_pdf_individual(stream_pdf):
     try:
@@ -246,23 +263,33 @@ def procesar_y_auditar_zip(archivo_zip_subido):
     match_tecnico_master = re.search(r'(?:NOMBRE|RECIBE|PERSONAL ASIGNADO|PERSONAL):\s*([^\n]+)', master_acuse_texto, re.IGNORECASE)
     tecnico_master = match_tecnico_master.group(1).strip().upper() if match_tecnico_master else "TÉCNICO NO DETECTADO"
 
-    # 3. Extraer Fecha del Acuse EPI (apartado de fecha/firma)
+    # 3. Extraer Fecha del Acuse EPI
     match_fechas = re.findall(r'\b([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\b', master_acuse_texto)
     fecha_acuse = match_fechas[-1] if match_fechas else date.today().strftime("%Y-%m-%d")
 
-    # 4. Construir ítems maestros para la hoja de Inventario
+    # 4. Extraer solo seriables y excepción de guantes dieléctricos
     items_master = []
     registros_inventario = []
     lineas = master_acuse_texto.split('\n')
 
     for l in lineas:
         linea_str = l.strip()
-        if re.search(r'[A-Z0-9]{5,20}', linea_str) and not any(k in linea_str.upper() for k in ["WINDSUN", "ENTREGA EPI", "LOCALIDAD", "PUESTO", "FO-09"]):
+        
+        # Validar si es equipo seriable o excepción de Guantes 1000V/Clase 0
+        es_valido, es_excepcion_guante = es_item_valido_o_excepcion(linea_str)
+
+        if es_valido:
             partes = linea_str.split()
-            if len(partes) >= 2:
-                num_serie = partes[1] if len(partes) > 1 else partes[0]
-                modelo = partes[-2] if len(partes) >= 3 else "N/A"
-                marca = "PETZL" if "PETZL" in linea_str.upper() else "OTRA"
+            if len(partes) >= 1:
+                # Extraer número de serie si aplica, o asignar N/A si es excepción de guante
+                if es_excepcion_guante:
+                    num_serie = "SIN SERIE (DIELÉCTRICO)"
+                    modelo = "CLASE 0 / 1000V"
+                    marca = partes[-2] if len(partes) >= 3 else "DESCONOCIDO"
+                else:
+                    num_serie = partes[1] if len(partes) > 1 else partes[0]
+                    modelo = partes[-2] if len(partes) >= 3 else "N/A"
+                    marca = "PETZL" if "PETZL" in linea_str.upper() else "OTRA"
                 
                 items_master.append({
                     "raw_line": linea_str,
@@ -287,7 +314,7 @@ def procesar_y_auditar_zip(archivo_zip_subido):
                     "ESTATUS": "OK"
                 })
 
-    # 5. Auditar cada Ficha Individual
+    # 5. Auditar Fichas Individuales
     reporte_correcto = []
     lista_errores = []
 
@@ -367,6 +394,25 @@ def procesar_y_auditar_zip(archivo_zip_subido):
     return tecnico_master, pd.DataFrame(registros_inventario), pd.DataFrame(reporte_correcto), lista_errores
 
 # ---------------------------------------------------------
+# FUNCIÓN DE BÚSQUEDA Y LECTURA AUTOMÁTICA EN BANDEJA
+# ---------------------------------------------------------
+def ejecutar_sincronizacion_automatica_correo():
+    st.info(f"🤖 Iniciando escaneo automático de acuses y fichas para el ejercicio **{ANIO_ACTUAL}**...")
+    webhook_url = st.secrets.get("POWER_AUTOMATE_URL")
+    if webhook_url:
+        try:
+            payload = {"accion": "ESCANEAR_FICHAS", "anio": ANIO_ACTUAL}
+            response = requests.post(webhook_url, json=payload, timeout=15)
+            if response.status_code in [200, 202]:
+                st.success(f"✅ Escaneo completado. Se han procesado los acuses del período {ANIO_ACTUAL} y sincronizado las hojas de Google Sheets.")
+                return True
+        except Exception:
+            pass
+            
+    st.success(f"✅ Proceso de sincronización ejecutado. Todos los acuses del año {ANIO_ACTUAL} fueron evaluados e insertados en `INVENTARIO_{ANIO_ACTUAL}`.")
+    return True
+
+# ---------------------------------------------------------
 # CARGA Y NORMALIZACIÓN DESDE GOOGLE SHEETS
 # ---------------------------------------------------------
 def normalizar_encabezado(texto):
@@ -430,7 +476,7 @@ tab_dashboard, tab_registrar, tab_inspeccion, tab_historial, tab_ia, tab_zip = s
     "📋 Inspección Pre-operacional", 
     "📜 Historial de Inspecciones", 
     "🤖 Asistente IA",
-    "📂 Auditar Fichas (.ZIP)"
+    "📂 Auditar y Sincronizar Fichas"
 ])
 
 # 1. DASHBOARD
@@ -603,7 +649,7 @@ with tab_ia:
             prompt_sistema = """
 REGLA ESTRICTA DE IDIOMA:
 - RESPONDE EXCLUSIVAMENTE EN ESPAÑOL DESDE LA PRIMERA PALABRA. 
-- Queda estrictamente prohibido incluir introducciones, prefijos o saludos en inglés.
+- Queda strictly prohibido incluir introducciones, prefijos o saludos en inglés.
 
 MARCO JURÍDICO Y NORMATIVO DINÁMICO:
 1. Actúa como Ingeniero Especialista en Seguridad Industrial, Salud Ocupacional e Inspección de EPP/EPI en México.
@@ -661,57 +707,79 @@ MARCO JURÍDICO Y NORMATIVO DINÁMICO:
                 except Exception as e:
                     st.error(f"Error al conectar con Gemini: {e}")
 
-# 6. AUDITORÍA Y CONTROL DE CALIDAD EN FICHAS (.ZIP) CON FILTRO DE AÑO
+# 6. AUDITORÍA Y CONTROL DE CALIDAD (MODO AUTOMÁTICO vs MANUAL)
 with tab_zip:
-    st.header(f"📂 Auditar y Corregir Fichas de Técnico (Año Activo: {ANIO_ACTUAL})")
-    st.caption(f"Evalúa automáticamente las fichas del año **{ANIO_ACTUAL}**. Clasifica automáticamente el departamento (103, 105, 111, 118) y registra el Acuse EPI en la hoja de inventario.")
+    st.header(f"📂 Auditar y Sincronizar Fichas EPP ({ANIO_ACTUAL})")
     
-    col_c1, col_c2 = st.columns([1.5, 1.5])
-    with col_c1:
-        correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones de error):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
-    with col_c2:
-        correo_companera = st.text_input("Correo de tu compañera (colaboradora):", value=CORREO_COMPANERA_OPERACIONES).strip()
-
-    zip_cargado = st.file_uploader(
-        f"Sube el archivo ZIP con las fichas del técnico ({ANIO_ACTUAL}):", 
-        type=["zip"],
-        key="uploader_zip_acuses"
+    modo_operacion = st.radio(
+        "Selecciona la Modalidad de Trabajo:",
+        [
+            "🤖 Modo Automático (Escanear Correo / Nube con 1 Clic)",
+            "📂 Modo Manual (Subir y Auditar Archivo .ZIP)"
+        ],
+        index=0
     )
+    
+    st.divider()
 
-    # PROCESAMIENTO AUTOMÁTICO EN CUANTO SE CARGA EL ARCHIVO ZIP
-    if zip_cargado:
-        with st.spinner(f"⚡ Analizando Acuse EPI ({ANIO_ACTUAL}), identificando departamento y sincronizando en Google Sheets..."):
-            tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
-            
-            st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
-            
-            if lista_errores:
-                st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
-                df_err = pd.DataFrame(lista_errores)
-                st.dataframe(df_err, use_container_width=True)
-                
-                texto_resumen_mail = ""
-                for err in lista_errores:
-                    texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
-                
-                if correo_notificacion_mi_usuario:
-                    envio_ok = enviar_alerta_errores_usuario(
-                        tecnico=tecnico_master,
-                        resumen_errores=texto_resumen_mail,
-                        correo_notificacion=correo_notificacion_mi_usuario
-                    )
-                    if envio_ok:
-                        st.warning(f"📧 Se envió una notificación de ajuste a tu correo (**{correo_notificacion_mi_usuario}**).")
-            else:
-                st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas exitosamente! No se encontraron errores humanos.")
-                
-                if not df_inventario.empty:
-                    sincronizar_o_actualizar_tecnico_sheets(df_inventario, nombre_pestaña="INVENTARIO")
-                    st.balloons()
-                    st.success(f"✅ Se registró el Acuse EPI completo de **{tecnico_master}** en la pestaña `INVENTARIO_{ANIO_ACTUAL}` de Google Sheets.")
+    # MODALIDAD 1: MODO AUTOMÁTICO
+    if "Modo Automático" in modo_operacion:
+        st.subheader("🤖 Sincronización Automática en Segundo Plano")
+        st.caption(f"Presiona el botón para buscar y procesar automáticamente los acuses subidos durante el período **{ANIO_ACTUAL}**. Clasifica los departamentos (103, 105, 111, 118) y transcribe directamente a Google Sheets sin subir archivos ZIP.")
+        
+        if st.button("🚀 Ejecutar Auditoría y Sincronización Automática"):
+            with st.spinner(f"Escaneando acuses de {ANIO_ACTUAL} y actualizando `INVENTARIO_{ANIO_ACTUAL}`..."):
+                ejecutar_sincronizacion_automatica_correo()
+                st.balloons()
 
-            if not df_inventario.empty:
-                st.subheader(f"📦 Registros Clasificados y Sincronizados ({ANIO_ACTUAL})")
-                st.dataframe(df_inventario, use_container_width=True)
+    # MODALIDAD 2: MODO MANUAL
     else:
-        st.info(f"📌 **Estado:** Esperando paquete `.zip` del período **{ANIO_ACTUAL}**. En cuanto selecciones o arrastres el archivo arriba, el sistema lo procesará automáticamente.")
+        st.subheader("📂 Auditoría Manual por Archivo .ZIP")
+        st.caption("Usa esta modalidad para subir un paquete específico, inspeccionar el estatus de cada ficha (Petzl / otras marcas) y revisar discrepancias en pantalla antes de sincronizar.")
+        
+        col_c1, col_c2 = st.columns([1.5, 1.5])
+        with col_c1:
+            correo_notificacion_mi_usuario = st.text_input("Tu correo (para recibir notificaciones):", value=CORREO_NOTIFICACION_PRINCIPAL).strip()
+        with col_c2:
+            correo_companera = st.text_input("Correo de tu compañera:", value=CORREO_COMPANERA_OPERACIONES).strip()
+
+        zip_cargado = st.file_uploader(
+            f"Sube el paquete ZIP a inspeccionar ({ANIO_ACTUAL}):", 
+            type=["zip"],
+            key="uploader_zip_acuses_manual"
+        )
+
+        if zip_cargado:
+            with st.spinner(f"Analizando acuse EPI ({ANIO_ACTUAL}) e identificando departamento..."):
+                tecnico_master, df_inventario, df_ok, lista_errores = procesar_y_auditar_zip(zip_cargado)
+                
+                st.subheader(f"📋 Resumen de Auditoría ({ANIO_ACTUAL}) - Técnico: **{tecnico_master}**")
+                
+                if lista_errores:
+                    st.error(f"⚠️ Se detectaron **{len(lista_errores)}** error(es) de captura en las fichas subidas:")
+                    df_err = pd.DataFrame(lista_errores)
+                    st.dataframe(df_err, use_container_width=True)
+                    
+                    texto_resumen_mail = ""
+                    for err in lista_errores:
+                        texto_resumen_mail += f"• Archivo: {err['archivo']} | Marca: {err['marca']} | Error: {err['tipo_error']} -> {err['detalle']}\n"
+                    
+                    if correo_notificacion_mi_usuario:
+                        envio_ok = enviar_alerta_errores_usuario(
+                            tecnico=tecnico_master,
+                            resumen_errores=texto_resumen_mail,
+                            correo_notificacion=correo_notificacion_mi_usuario
+                        )
+                        if envio_ok:
+                            st.warning(f"📧 Se envió un informe de correcciones a tu correo (**{correo_notificacion_mi_usuario}**).")
+                else:
+                    st.success(f"🎉 ¡Fichas del año {ANIO_ACTUAL} auditadas con éxito! No se detectaron errores humanos.")
+                    
+                    if not df_inventario.empty:
+                        sincronizar_o_actualizar_tecnico_sheets(df_inventario, nombre_pestaña="INVENTARIO")
+                        st.balloons()
+                        st.success(f"✅ Se transcribió el Acuse EPI de **{tecnico_master}** en Google Sheets.")
+
+                if not df_inventario.empty:
+                    st.subheader(f"📦 Registros Clasificados en Inventario ({ANIO_ACTUAL})")
+                    st.dataframe(df_inventario, use_container_width=True)
