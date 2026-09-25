@@ -116,7 +116,7 @@ CATALOGO_EQUIPOS_EPP = {
 
 
 # =========================================================
-# CONFIGURACIÓN VISUAL
+# CONFIGURACIÓN VISUAL Y CORRECCIÓN DE INPUTS
 # =========================================================
 
 st.sidebar.header("⚙️ Configuración Visual")
@@ -131,6 +131,9 @@ def calcular_color_texto(hex_color):
     return "#000000" if luminancia > 0.5 else "#FFFFFF"
 
 color_texto = calcular_color_texto(color_fondo)
+# Definimos el color del texto de los inputs de forma inteligente en base al fondo
+color_texto_input = "#FFFFFF" if color_texto == "#FFFFFF" else "#000000"
+color_fondo_input = "#262730" if color_texto == "#FFFFFF" else "#FFFFFF"
 
 st.markdown(
     f"""
@@ -142,8 +145,10 @@ st.markdown(
     h1, h2, h3, h4, h5, h6, p, span, label, div, .stMarkdown {{
         color: {color_texto} !important;
     }}
-    .stTextInput input, .stSelectbox select {{
-        color: #000000 !important;
+    /* Corrección estricta para cajas de texto y campos de contraseña */
+    .stTextInput input, .stSelectbox select, textarea {{
+        color: {color_texto_input} !important;
+        background-color: {color_fondo_input} !important;
     }}
     </style>
     """,
@@ -160,7 +165,6 @@ st.sidebar.header("🔒 Panel de Administrador")
 
 password_ingresada = st.sidebar.text_input("Contraseña de Administrador:", type="password")
 
-# Se obtiene la contraseña de forma segura desde las variables de entorno o secretos
 PASSWORD_ADMIN = os.getenv("ADMIN_PASSWORD") or st.secrets.get("ADMIN_PASSWORD", "")
 
 sistema_activo = True
